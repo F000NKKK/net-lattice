@@ -19,8 +19,8 @@ keywords = ["networking", "netlink", "cross-platform", "systems", "os"]
 # why each crate's version is independent rather than tied to a single
 # workspace-wide number.
 [workspace.dependencies]
-net-lattice-core = { path = "crates/net-lattice-core", version = "0.4.0" }
-net-lattice-ip = { path = "crates/net-lattice-ip", version = "0.3.0" }
+net-lattice-core = { path = "crates/net-lattice-core", version = "0.5.0" }
+net-lattice-ip = { path = "crates/net-lattice-ip", version = "0.4.0" }
 
 net-lattice-model = { path = "crates/net-lattice-model", version = "0.17.0" }
 net-lattice-platform = { path = "crates/net-lattice-platform", version = "0.16.0" }
