@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.20.0] - 2026-08-06
 
 ### Added
 
@@ -18,22 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `is_already_exists`/`is_unsupported`/`is_invalid_state`/`is_disconnected`/
   `is_platform`: one matching-helper method per existing `Error` variant,
   for callers who prefer `if err.is_not_found() { ... }` over `matches!`.
-
-### Changed
-
-- Documented previously undocumented public constructor/builder methods
-  across `net-lattice-model` (`Route`, `RouteConfig`, `Interface`,
-  `NeighborEntry`, `StaticNeighbor`, `InterfaceAddress`,
-  `NewInterfaceAddress`, `MacAddress`, `EventFilter`'s domain-selector
-  methods) and `net-lattice-ip` (`Ipv4Address`, `Ipv4Network`,
-  `Ipv6Address`, `Ipv6Network`), and `net-lattice`'s `Lattice::routes`/
-  `interfaces`/`dns_config`/`neighbors`/`addresses` read methods. No
-  behavior change; a rustdoc completeness pass only.
-
-## [0.20.0] - 2026-08-06
-
-### Added
-
 - `net-lattice-model::ApplyPlan`/`ApplyStep`: a new `#[non_exhaustive]`,
   pure, side-effect-free ordered list of steps compiled from a `Diff`, via
   `ApplyPlan::compile(diff: &Diff) -> ApplyPlan` — infallible, no I/O, no
@@ -104,6 +88,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callers that want to preflight a compiled `ApplyPlan` without executing
   it. New `declarative_apply` example demonstrates the full
   `DesiredState` → `apply()` → `ApplyPlanReport` walkthrough.
+
+### Changed
+
+- Documented previously undocumented public constructor/builder methods
+  across `net-lattice-model` (`Route`, `RouteConfig`, `Interface`,
+  `NeighborEntry`, `StaticNeighbor`, `InterfaceAddress`,
+  `NewInterfaceAddress`, `MacAddress`, `EventFilter`'s domain-selector
+  methods) and `net-lattice-ip` (`Ipv4Address`, `Ipv4Network`,
+  `Ipv6Address`, `Ipv6Network`), and `net-lattice`'s `Lattice::routes`/
+  `interfaces`/`dns_config`/`neighbors`/`addresses` read methods. No
+  behavior change; a rustdoc completeness pass only.
 
 ## [0.19.1] - 2026-08-05
 
