@@ -756,6 +756,194 @@ Stages 0.15–0.20 должны строить transactions и declarative apply
 изменения до того, как оно сделано, а не для того, чтобы освободить какой-
 либо крейт от обычной semver-дисциплины после достижения Net Lattice версии 1.0.
 
+## Замороженная публичная поверхность API версии 1.0
+
+Это сводный, по-крейтовый чек-лист публичных элементов, на которые
+распространяется semver-дисциплина из раздела "Правила стабильности API"
+выше после достижения Net Lattice версии 1.0. Он существует, чтобы
+рецензент мог проверить "находится ли этот элемент в замороженном списке",
+не выводя публичную поверхность workspace заново из исходного кода вручную.
+Почти каждая доменная структура и enum ниже уже помечены
+`#[non_exhaustive]` — новые поля/варианты остаются аддитивными после
+1.0 — поэтому этот чек-лист отслеживает *существование*, *имя* и *форму*
+элемента, а не только атрибут.
+
+### `net-lattice-core`
+
+Самый стабильный крейт; от каждого элемента ниже зависит каждый другой
+крейт в workspace.
+
+- `Error` (enum; пока не помечен `#[non_exhaustive]` — см. примечание ниже)
+  и его методы `is_permission_denied`, `is_not_found`, `is_already_exists`,
+  `is_unsupported`, `is_invalid_state`, `is_disconnected`, `is_platform`.
+- `PlatformErrorCode` (enum; пока не помечен `#[non_exhaustive]`), варианты
+  `Linux(i32)`, `Windows(u32)`, `Darwin(i32)`.
+- `Id<T>` (фантомно-типизированный идентификатор) и его методы `new`,
+  `value`.
+- `Result<T>` (псевдоним уровня крейта для `core::result::Result<T, Error>`).
+
+Примечание: в отличие от почти каждого enum в `net-lattice-model`/
+`net-lattice-platform`, `Error` и `PlatformErrorCode` пока не помечены
+атрибутом `#[non_exhaustive]`. Добавлять ли этот атрибут до заморозки 1.0 —
+отдельное решение, не устанавливаемое этим чек-листом.
+
+### `net-lattice-model`
+
+- **Домен интерфейсов** (`interface`): `Interface`, `InterfaceConfig`,
+  `InterfaceId` (`= Id<Interface>`), `InterfaceKind`, `AdminState`,
+  `DesiredAdminState`, `OperationalState`.
+- **Домен маршрутов** (`route`): `Route`, `RouteConfig`, `RouteId`
+  (`= Id<Route>`).
+- **Домен соседей** (`neighbor`): `NeighborEntry`, `NeighborId`
+  (`= Id<NeighborEntry>`), `NeighborState`, `StaticNeighbor`.
+- **Домен адресов интерфейса** (`ifaddr`): `InterfaceAddress`,
+  `InterfaceAddressId` (`= Id<InterfaceAddress>`), `NewInterfaceAddress`.
+- **Домен DNS** (`dns`): `DnsConfig`, `NewDnsConfig`.
+- **MAC-адрес** (`mac`): `MacAddress`.
+- **Вспомогательные типы адресов** (`address`): `IpAddress`, `Network`.
+- **Снимок состояния** (`snapshot`): `CurrentState`.
+- **Декларативное желаемое состояние** (`desired_state`): `DesiredState`.
+- **Diff** (`diff`): `Diff`, `Change`, `RouteChange`, `InterfaceDiff`,
+  `NeighborChange`, `AddressChange`, `DnsChange`.
+- **План применения** (`apply`): `ApplyPlan`, `ApplyPlanReport`,
+  `ApplyStep`, `ApplyStepOutcome`, `NonConvergentReason`.
+- **События** (`event`): `Event`, `EventDomain`, `EventFilter`,
+  `ChangeKind`.
+- **Намерение/план/отчёт мутации** (`mutation`): `Mutation`,
+  `MutationKind`, `MutationPlan`, `MutationPlanReport`,
+  `MutationOperationReport`, `MutationOutcome`, `MutationPreflight`,
+  `MutationPrecondition`, `MutationConfirmation`, `MutationSnapshot`,
+  `MutationPrivilege`, `MutationReversibility`, `MutationSemantics`,
+  `MutationIdempotency`, `MutationExecutionPhase`, `MutationStopReason`,
+  `RollbackStatus`.
+
+Все перечисленные выше структуры/enum помечены `#[non_exhaustive]` на
+уровне типа или варианта, за исключением небольших псевдонимов-маркеров
+(`InterfaceId`/`RouteId`/`NeighborId`/`InterfaceAddressId` — это псевдонимы
+типа `Id<T>` без собственного атрибута; дисциплина заморозки для них — это
+дисциплина `Id<T>`, см. `net-lattice-core` выше) и `RouteReplaceOrder`,
+который определён в `net-lattice-platform` (см. ниже), хотя и
+ре-экспортируется через модуль `mutation` фасада.
+
+### `net-lattice-platform`
+
+- **Пары provider/mutator traits** (чтение без привилегий / запись с
+  привилегиями, по одной паре на домен): `RouteProvider`/`RouteMutator`,
+  `InterfaceProvider`/`InterfaceMutator`, `NeighborProvider`/
+  `NeighborMutator`, `AddressProvider`/`AddressMutator`,
+  `DnsProvider`/`DnsMutator`.
+- `RouteMutator::add_route`, `RouteMutator::remove_route` — два метода
+  мутации, зависящих от `Capability`.
+- **`RouteMutator::supports_route_metric`** и
+  **`RouteMutator::route_replace_order`** — см. раздел "Факты,
+  объявляемые backend'ом не через `Capability`" ниже; эти два
+  предоставляемых по умолчанию метода trait'а являются такой же
+  замороженной публичной поверхностью, как и список типов выше, но их
+  легко упустить, поскольку это не флаги `Capability`.
+- `RouteReplaceOrder` (enum `#[non_exhaustive]`), варианты
+  `RemoveBeforeAdd`, `AddBeforeRemove`.
+- `Capability` (тип на основе `bitflags`) и его флаги: `IPV6`, `VRF`,
+  `NAMESPACES`, `ROUTE_MONITORING`, `DNS_MUTATION`,
+  `INTERFACE_ADMIN_STATE`, `INTERFACE_MTU`, `INTERFACE_MONITORING`,
+  `NEIGHBOR_MONITORING`, `ADDRESS_MONITORING`, `NEIGHBOR_MUTATION`,
+  `ROUTE_MUTATION` и составной `MONITORING` (побитовое объединение четырёх
+  флагов `*_MONITORING`).
+- Trait `CapabilityProvider` и его единственный метод `capabilities`.
+- `EventProvider`, `EventReceiver`, `EventSender` (контракт доставки
+  нативных событий изменения).
+- `SnapshotProvider` (сборка состояния всей системы; реализуется blanket-
+  реализацией, а не вручную на каждый backend).
+- За флагом функции `async`: `TokioEventProvider` и его метод
+  `watch_tokio`, `TokioEventReceiver`, `TokioEventSender`.
+
+#### Факты, объявляемые backend'ом не через `Capability`
+
+`RouteMutator::supports_route_metric() -> bool` (по умолчанию `true`) и
+`RouteMutator::route_replace_order() -> RouteReplaceOrder` (по умолчанию
+`RouteReplaceOrder::RemoveBeforeAdd`) **не являются** флагами `Capability`.
+Это обычные методы trait'а со значениями по умолчанию, поскольку они
+описывают фиксированный факт о целевом backend'е (например, "ключ
+удаления маршрута этой операционной системы не может различить
+находящуюся в процессе замену"), а не зависящую от времени выполнения
+возможность, которая может отличаться между двумя процессами,
+подключёнными к backend'у одного и того же вида. Заморозка версии 1.0
+должна отслеживать их сигнатуры и значения по умолчанию с той же
+дисциплиной, что и сам `Capability` — читатель, который проверяет только
+doc-комментарий `Capability` в поисках "что backend объявляет о себе",
+пропустит эти два метода.
+
+### `net-lattice` (фасад)
+
+- **Ре-экспорты корня крейта**: `Error`, `Id<T>`, `PlatformErrorCode`,
+  `Result` (из `net-lattice-core`); типы адресов `net-lattice-ip`;
+  `Capability`, `CapabilityProvider` (из `net-lattice-platform`);
+  `Lattice<B>`; `LatticeBackend`.
+- **Модуль `model`** (наблюдаемые доменные типы только для чтения и
+  read-provider traits): `DnsConfig`, `InterfaceAddress`,
+  `InterfaceAddressId`, `AdminState`, `Interface`, `InterfaceId`,
+  `InterfaceKind`, `OperationalState`, `MacAddress`, `NeighborEntry`,
+  `NeighborId`, `NeighborState`, `Route`, `RouteId`, `CurrentState`,
+  `IpAddress`, `Network`, `AddressProvider`, `DnsProvider`,
+  `InterfaceProvider`, `NeighborProvider`, `RouteProvider`,
+  `SnapshotProvider`.
+- **Модуль `mutation`** (намерение мутации, машинерия
+  плана/выполнения/отчёта, mutator traits, декларативная пара
+  `DesiredState`/`Diff`): `Cancellation`, `Compensation`,
+  `ExecutionOptions`, `Snapshot`, `ApplyPlan`, `ApplyPlanReport`,
+  `ApplyStep`, `ApplyStepOutcome`, `NonConvergentReason`, `DesiredState`,
+  `AddressChange`, `Change`, `Diff`, `DnsChange`, `InterfaceDiff`,
+  `NeighborChange`, `RouteChange`, `NewDnsConfig`, `NewInterfaceAddress`,
+  `DesiredAdminState`, `InterfaceConfig`, `Mutation`,
+  `MutationConfirmation`, `MutationExecutionPhase`, `MutationIdempotency`,
+  `MutationKind`, `MutationOperationReport`, `MutationOutcome`,
+  `MutationPlan`, `MutationPlanReport`, `MutationPrecondition`,
+  `MutationPreflight`, `MutationPrivilege`, `MutationReversibility`,
+  `MutationSemantics`, `MutationSnapshot`, `MutationStopReason`,
+  `RollbackStatus`, `StaticNeighbor`, `RouteConfig`, `AddressMutator`,
+  `DnsMutator`, `InterfaceMutator`, `NeighborMutator`, `RouteMutator`,
+  `RouteReplaceOrder`.
+- **Модуль `monitoring`** (события изменений, фильтры, monitoring
+  provider traits): `EventStream` (за флагом функции `async`),
+  `ChangeKind`, `Event`, `EventDomain`, `EventFilter`, `TokioEventProvider`
+  (за флагом функции `async`), `EventProvider`, `EventReceiver`.
+- **Модуль `backend`** (единая точка входа для авторов сторонних
+  backend'ов; ре-экспортирует элементы, также доступные через
+  `model`/`mutation`/`monitoring` выше, плюс `LatticeBackend` и
+  `CapabilityProvider`): `LatticeBackend`, `CurrentState`,
+  `AddressMutator`, `AddressProvider`, `CapabilityProvider`, `DnsMutator`,
+  `DnsProvider`, `EventProvider`, `EventReceiver`, `EventSender`,
+  `InterfaceMutator`, `InterfaceProvider`, `NeighborMutator`,
+  `NeighborProvider`, `RouteMutator`, `RouteProvider`, `RouteReplaceOrder`,
+  `SnapshotProvider`, а также за флагом функции `async`:
+  `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
+- **`LatticeBackend`** — ограничение времени компиляции, которому должен
+  соответствовать сторонний backend; его точный набор supertraits
+  (`RouteProvider`/`RouteMutator`/`InterfaceProvider`/`InterfaceMutator`/
+  `DnsMutator`/`NeighborProvider`/`NeighborMutator`/`AddressProvider`/
+  `AddressMutator`/`EventProvider`/`CapabilityProvider`, каждый привязан к
+  конкретному типу `net-lattice-model`) сам является частью замороженного
+  контракта: расширение или сужение этого набора — breaking change для
+  каждой сторонней реализации backend'а.
+- **Публичные методы `Lattice<B>`**: `routes`, `add_route`,
+  `remove_route`, `interfaces`, `set_interface_config`, `dns_config`,
+  `set_dns_config`, `neighbors`, `add_static_neighbor`,
+  `remove_static_neighbor`, `addresses`, `add_address`, `remove_address`,
+  `current_state`, `apply`, `diff`, `validate_plan`,
+  `snapshot_for_mutation`, `execute_plan`, `execute_apply_plan`,
+  `capabilities`, `supports`, `watch`, `watch_async` (за флагом функции
+  `async`), `watch_filtered`, а также конструкторы `connect` для каждой
+  платформы (по одной реализации, помеченной
+  `#[cfg(target_os = "...")]`, на поддерживаемую ОС, с одной и той же
+  публичной сигнатурой `fn connect() -> Result<Self>` на каждой
+  платформе).
+
+Этот чек-лист — это тот самый рецензируемый инвентарь, который требуется
+аудитом заморозки публичного API; сам по себе он не меняет форму или
+атрибут ни одного типа — см. пометку "Факты, объявляемые backend'ом не
+через `Capability`" выше и примечание о не-`#[non_exhaustive]`-статусе
+`Error`/`PlatformErrorCode` в разделе `net-lattice-core` — это два открытых
+вопроса, которые выявил этот инвентарь.
+
 ## Явные не-цели этой архитектуры
 
 - **Ни один крейт не является Linux-, Windows- или macOS-специфичным, кроме

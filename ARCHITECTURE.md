@@ -736,6 +736,180 @@ This ranking exists so that a change's blast radius can be reasoned about
 before it's made, not so that any crate is exempt from normal semver
 discipline once Lattice reaches 1.0.
 
+## Frozen 1.0 Public API Surface
+
+This is the consolidated, per-crate checklist of the public items that fall
+under the semver discipline in the "API Stability Rules" section above once
+Lattice reaches 1.0. It exists so a reviewer can check "is this item on the
+frozen list" without re-deriving the workspace's public surface from source
+by hand. Nearly every domain-shaped struct and enum below is already
+`#[non_exhaustive]` — new fields/variants remain additive after 1.0 — so
+this checklist tracks item *existence*, *name*, and *shape*, not just the
+attribute.
+
+### `net-lattice-core`
+
+The most stable crate; every item below is depended on by every other crate
+in the workspace.
+
+- `Error` (enum; not currently `#[non_exhaustive]` — see note below) and its
+  methods `is_permission_denied`, `is_not_found`, `is_already_exists`,
+  `is_unsupported`, `is_invalid_state`, `is_disconnected`, `is_platform`.
+- `PlatformErrorCode` (enum; not currently `#[non_exhaustive]`), variants
+  `Linux(i32)`, `Windows(u32)`, `Darwin(i32)`.
+- `Id<T>` (phantom-typed identifier) and its methods `new`, `value`.
+- `Result<T>` (crate-level alias for `core::result::Result<T, Error>`).
+
+Note: unlike almost every enum in `net-lattice-model`/`net-lattice-platform`,
+`Error` and `PlatformErrorCode` are not yet marked `#[non_exhaustive]`.
+Whether to add that attribute before the 1.0 freeze is tracked as its own
+decision, not settled by this inventory.
+
+### `net-lattice-model`
+
+- **Interface domain** (`interface`): `Interface`, `InterfaceConfig`,
+  `InterfaceId` (`= Id<Interface>`), `InterfaceKind`, `AdminState`,
+  `DesiredAdminState`, `OperationalState`.
+- **Route domain** (`route`): `Route`, `RouteConfig`, `RouteId`
+  (`= Id<Route>`).
+- **Neighbor domain** (`neighbor`): `NeighborEntry`, `NeighborId`
+  (`= Id<NeighborEntry>`), `NeighborState`, `StaticNeighbor`.
+- **Interface-address domain** (`ifaddr`): `InterfaceAddress`,
+  `InterfaceAddressId` (`= Id<InterfaceAddress>`), `NewInterfaceAddress`.
+- **DNS domain** (`dns`): `DnsConfig`, `NewDnsConfig`.
+- **MAC address** (`mac`): `MacAddress`.
+- **Address helpers** (`address`): `IpAddress`, `Network`.
+- **Snapshot** (`snapshot`): `CurrentState`.
+- **Declarative desired state** (`desired_state`): `DesiredState`.
+- **Diff** (`diff`): `Diff`, `Change`, `RouteChange`, `InterfaceDiff`,
+  `NeighborChange`, `AddressChange`, `DnsChange`.
+- **Apply plan** (`apply`): `ApplyPlan`, `ApplyPlanReport`, `ApplyStep`,
+  `ApplyStepOutcome`, `NonConvergentReason`.
+- **Events** (`event`): `Event`, `EventDomain`, `EventFilter`, `ChangeKind`.
+- **Mutation intent/plan/report** (`mutation`): `Mutation`, `MutationKind`,
+  `MutationPlan`, `MutationPlanReport`, `MutationOperationReport`,
+  `MutationOutcome`, `MutationPreflight`, `MutationPrecondition`,
+  `MutationConfirmation`, `MutationSnapshot`, `MutationPrivilege`,
+  `MutationReversibility`, `MutationSemantics`, `MutationIdempotency`,
+  `MutationExecutionPhase`, `MutationStopReason`, `RollbackStatus`.
+
+All of the above structs/enums are `#[non_exhaustive]` at the type or
+variant level except the small alias/marker items (`InterfaceId`/`RouteId`/
+`NeighborId`/`InterfaceAddressId`, which are `Id<T>` type aliases with no
+attribute of their own — freeze discipline for them is `Id<T>`'s, tracked
+under `net-lattice-core` above) and `RouteReplaceOrder`, which is defined in
+`net-lattice-platform` (see below) though re-exported through the facade's
+`mutation` module.
+
+### `net-lattice-platform`
+
+- **Provider/mutator trait pairs** (read unprivileged / write privileged,
+  one pair per domain): `RouteProvider`/`RouteMutator`,
+  `InterfaceProvider`/`InterfaceMutator`, `NeighborProvider`/
+  `NeighborMutator`, `AddressProvider`/`AddressMutator`,
+  `DnsProvider`/`DnsMutator`.
+- `RouteMutator::add_route`, `RouteMutator::remove_route` — the two
+  `Capability`-gated mutation methods.
+- **`RouteMutator::supports_route_metric`** and
+  **`RouteMutator::route_replace_order`** — see "Non-`Capability`
+  backend-declared facts" below; these two default-provided trait methods
+  are just as much frozen public surface as the type list above, but are
+  easy to miss because they are not `Capability` flags.
+- `RouteReplaceOrder` (`#[non_exhaustive]` enum), variants
+  `RemoveBeforeAdd`, `AddBeforeRemove`.
+- `Capability` (a `bitflags`-based type) and its flags: `IPV6`, `VRF`,
+  `NAMESPACES`, `ROUTE_MONITORING`, `DNS_MUTATION`,
+  `INTERFACE_ADMIN_STATE`, `INTERFACE_MTU`, `INTERFACE_MONITORING`,
+  `NEIGHBOR_MONITORING`, `ADDRESS_MONITORING`, `NEIGHBOR_MUTATION`,
+  `ROUTE_MUTATION`, and the composite `MONITORING` (the bitwise union of
+  the four `*_MONITORING` flags).
+- `CapabilityProvider` trait and its single method `capabilities`.
+- `EventProvider`, `EventReceiver`, `EventSender` (native change-event
+  delivery contract).
+- `SnapshotProvider` (whole-system state assembly; blanket-implemented,
+  not hand-written per backend).
+- Feature-gated (`async`): `TokioEventProvider` and its method
+  `watch_tokio`, `TokioEventReceiver`, `TokioEventSender`.
+
+#### Non-`Capability` backend-declared facts
+
+`RouteMutator::supports_route_metric() -> bool` (default `true`) and
+`RouteMutator::route_replace_order() -> RouteReplaceOrder` (default
+`RouteReplaceOrder::RemoveBeforeAdd`) are **not** `Capability` flags. They
+are plain trait methods with defaults because they describe a fixed fact
+about a backend target (e.g. "this operating system's native route-delete
+key cannot disambiguate an in-flight replacement") rather than a
+runtime-dependent capability that can differ between two processes
+connected to the same kind of backend. A 1.0 freeze must track their
+signatures and default values with the same discipline as `Capability`
+itself — a reader who only checks `Capability`'s doc comment for "what does
+a backend declare about itself" will miss these two methods.
+
+### `net-lattice` (facade)
+
+- **Crate-root re-exports**: `Error`, `Id<T>`, `PlatformErrorCode`, `Result`
+  (from `net-lattice-core`); the `net-lattice-ip` address types; `Capability`,
+  `CapabilityProvider` (from `net-lattice-platform`); `Lattice<B>`;
+  `LatticeBackend`.
+- **`model` module** (observed/read-only domain types and read-provider
+  traits): `DnsConfig`, `InterfaceAddress`, `InterfaceAddressId`,
+  `AdminState`, `Interface`, `InterfaceId`, `InterfaceKind`,
+  `OperationalState`, `MacAddress`, `NeighborEntry`, `NeighborId`,
+  `NeighborState`, `Route`, `RouteId`, `CurrentState`, `IpAddress`,
+  `Network`, `AddressProvider`, `DnsProvider`, `InterfaceProvider`,
+  `NeighborProvider`, `RouteProvider`, `SnapshotProvider`.
+- **`mutation` module** (mutation intent, plan/execution/report machinery,
+  mutator traits, declarative `DesiredState`/`Diff`): `Cancellation`,
+  `Compensation`, `ExecutionOptions`, `Snapshot`, `ApplyPlan`,
+  `ApplyPlanReport`, `ApplyStep`, `ApplyStepOutcome`, `NonConvergentReason`,
+  `DesiredState`, `AddressChange`, `Change`, `Diff`, `DnsChange`,
+  `InterfaceDiff`, `NeighborChange`, `RouteChange`, `NewDnsConfig`,
+  `NewInterfaceAddress`, `DesiredAdminState`, `InterfaceConfig`, `Mutation`,
+  `MutationConfirmation`, `MutationExecutionPhase`, `MutationIdempotency`,
+  `MutationKind`, `MutationOperationReport`, `MutationOutcome`,
+  `MutationPlan`, `MutationPlanReport`, `MutationPrecondition`,
+  `MutationPreflight`, `MutationPrivilege`, `MutationReversibility`,
+  `MutationSemantics`, `MutationSnapshot`, `MutationStopReason`,
+  `RollbackStatus`, `StaticNeighbor`, `RouteConfig`, `AddressMutator`,
+  `DnsMutator`, `InterfaceMutator`, `NeighborMutator`, `RouteMutator`,
+  `RouteReplaceOrder`.
+- **`monitoring` module** (change events, filters, monitoring provider
+  traits): `EventStream` (feature-gated `async`), `ChangeKind`, `Event`,
+  `EventDomain`, `EventFilter`, `TokioEventProvider` (feature-gated
+  `async`), `EventProvider`, `EventReceiver`.
+- **`backend` module** (the one-stop surface for third-party backend
+  authors; re-exports items also reachable via `model`/`mutation`/
+  `monitoring` above, plus `LatticeBackend` and `CapabilityProvider`):
+  `LatticeBackend`, `CurrentState`, `AddressMutator`, `AddressProvider`,
+  `CapabilityProvider`, `DnsMutator`, `DnsProvider`, `EventProvider`,
+  `EventReceiver`, `EventSender`, `InterfaceMutator`, `InterfaceProvider`,
+  `NeighborMutator`, `NeighborProvider`, `RouteMutator`, `RouteProvider`,
+  `RouteReplaceOrder`, `SnapshotProvider`, plus feature-gated (`async`)
+  `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
+- **`LatticeBackend`** — the compile-time bound a third-party backend must
+  satisfy; its exact set of supertraits (`RouteProvider`/`RouteMutator`/
+  `InterfaceProvider`/`InterfaceMutator`/`DnsMutator`/`NeighborProvider`/
+  `NeighborMutator`/`AddressProvider`/`AddressMutator`/`EventProvider`/
+  `CapabilityProvider`, each bound to the concrete `net-lattice-model`
+  type) is itself part of the frozen contract: widening or narrowing it is
+  a breaking change for every third-party backend implementation.
+- **`Lattice<B>` public methods**: `routes`, `add_route`, `remove_route`,
+  `interfaces`, `set_interface_config`, `dns_config`, `set_dns_config`,
+  `neighbors`, `add_static_neighbor`, `remove_static_neighbor`,
+  `addresses`, `add_address`, `remove_address`, `current_state`, `apply`,
+  `diff`, `validate_plan`, `snapshot_for_mutation`, `execute_plan`,
+  `execute_apply_plan`, `capabilities`, `supports`, `watch`, `watch_async`
+  (feature-gated `async`), `watch_filtered`, and the per-platform
+  `connect` constructors (one `#[cfg(target_os = "...")]`-gated
+  implementation per supported OS, same public signature `fn connect() ->
+  Result<Self>` on every platform).
+
+This checklist is the reviewable inventory called for by the public-API
+freeze audit; it does not itself change any type's shape or attribute — see
+the "Non-`Capability` backend-declared facts" callout above and the `Error`/
+`PlatformErrorCode` non-exhaustiveness note under `net-lattice-core` for the
+two open follow-up questions it surfaced.
+
 ## Explicit Non-Goals of This Architecture
 
 - **No crate is Linux-, Windows-, or macOS-specific except the backend
