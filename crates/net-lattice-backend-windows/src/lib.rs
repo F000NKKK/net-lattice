@@ -2842,6 +2842,18 @@ mod tests {
     /// persist in the read-after-write on real Windows CI runners.
     /// `nameservers` has no such ambient source and is still asserted with
     /// exact equality.
+    ///
+    /// Both the read-after-write and the final restore-verification reads are
+    /// wrapped in [`poll_until_dns_config_converges`] rather than a single
+    /// immediate `dns_config()` call: `SetDnsSettings`/
+    /// `SetInterfaceDnsSettings` are observed on real Windows CI runners to
+    /// apply asynchronously relative to the call returning, so a read taken
+    /// immediately after either the desired write or the restore write can
+    /// still observe the pre-write state. This previously surfaced as a
+    /// spurious failure of the final `assert_eq!(restored.nameservers,
+    /// before.nameservers)` (the "left" side still showing the test's desired
+    /// value, not the real original) even though `RestoreDnsConfig::drop` had
+    /// already run and its `set_dns_config` call had not returned an error.
     #[test]
     #[ignore = "requires Administrator; run from elevated cmd/PowerShell: cargo test -p net-lattice-backend-windows dns_configuration_round_trips_through_the_kernel -- --ignored"]
     fn dns_configuration_round_trips_through_the_kernel() {
@@ -2854,8 +2866,55 @@ mod tests {
 
         impl Drop for RestoreDnsConfig<'_> {
             fn drop(&mut self) {
-                let _ = self.backend.set_dns_config(self.original.clone());
+                // `Drop::drop` cannot return a `Result`, and panicking here
+                // would abort the process if already unwinding from a test
+                // failure, so a failed restore write can't be turned into a
+                // clean test failure. Make it loud in CI output instead of
+                // silently discarding the error (as `let _ = ...` used to)
+                // so a broken shared runner's DNS state is at least visible,
+                // matching the "loud, not silent" convention this Bug
+                // requires for a Drop-based restore guard.
+                if let Err(error) = self.backend.set_dns_config(self.original.clone()) {
+                    eprintln!(
+                        "DNS RESTORE FAILED, runner network may be in a bad state: \
+                         set_dns_config({:?}) returned {error:?}",
+                        self.original
+                    );
+                }
             }
+        }
+
+        /// Polls `dns_config()` up to `attempts` times, sleeping `delay`
+        /// between attempts, until `matches` returns `true` for the result or
+        /// the attempt budget is exhausted. Returns the last observed
+        /// `DnsConfig` either way, so callers get a normal assertion failure
+        /// (with the last-seen value in the message) rather than a bespoke
+        /// timeout error when convergence never happens.
+        ///
+        /// `SetDnsSettings`/`SetInterfaceDnsSettings` are Windows APIs known
+        /// to apply asynchronously in some configurations; 10 attempts x
+        /// 200ms (up to 2s total) mirrors the bounded-retry-with-sleep shape
+        /// already used by this file's `tokio_route_event` helper for
+        /// similarly eventually-consistent native state.
+        fn poll_until_dns_config_converges(
+            backend: &WindowsBackend,
+            mut matches: impl FnMut(&<WindowsBackend as DnsProvider>::DnsConfig) -> bool,
+        ) -> <WindowsBackend as DnsProvider>::DnsConfig {
+            let mut last = backend
+                .dns_config()
+                .expect("GetAdaptersAddresses should not require privilege");
+            for attempt in 0..10 {
+                if matches(&last) {
+                    return last;
+                }
+                if attempt + 1 < 10 {
+                    std::thread::sleep(Duration::from_millis(200));
+                    last = backend
+                        .dns_config()
+                        .expect("GetAdaptersAddresses should not require privilege");
+                }
+            }
+            last
         }
 
         let backend = WindowsBackend::new().expect("failed to create Windows backend");
@@ -2899,9 +2958,16 @@ mod tests {
                 );
             }
 
-            let read_after_write = backend
-                .dns_config()
-                .expect("GetAdaptersAddresses should not require privilege");
+            // Bounded poll: the write above may not have propagated to a
+            // fresh `GetAdaptersAddresses` read yet (see the doc comment on
+            // this test).
+            let read_after_write = poll_until_dns_config_converges(&backend, |config| {
+                config.nameservers == desired.nameservers
+                    && desired
+                        .search_domains
+                        .iter()
+                        .all(|domain| config.search_domains.contains(domain))
+            });
             assert_eq!(read_after_write.nameservers, desired.nameservers);
             for domain in &desired.search_domains {
                 assert!(
@@ -2912,9 +2978,15 @@ mod tests {
             }
         }
 
-        let restored = backend
-            .dns_config()
-            .expect("GetAdaptersAddresses should not require privilege");
+        // Bounded poll: `RestoreDnsConfig::drop` has already run by this
+        // point (the guard's scope just closed), but its `set_dns_config`
+        // write is subject to the same propagation delay as the write above
+        // - an immediate read can still observe the just-restored-from
+        // (i.e. `desired`) state rather than the real original.
+        let restored = poll_until_dns_config_converges(&backend, |config| {
+            config.nameservers == before.nameservers
+                && config.search_domains == before.search_domains
+        });
         assert_eq!(restored.nameservers, before.nameservers);
         assert_eq!(restored.search_domains, before.search_domains);
     }
