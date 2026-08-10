@@ -683,25 +683,16 @@ partial application is possible; and whether a compensating operation is safe.
 `ApplyPlan` may use this metadata, but must never infer rollback safety from a
 successful call alone.
 
-Event delivery is deliberately a separate, eventually consistent signal path:
+Event delivery is deliberately a separate, eventually consistent signal path;
+see the "Event Delivery Guarantees" section below for the canonical
+statement of what a watcher does and does not promise (ordering, overflow,
+snapshots, `ChangeKind::Changed`, DNS). The per-platform native monitoring
+mechanism is:
 
-- A watcher does not provide an initial snapshot, a global order across
-  domains, causal correlation with a caller's mutation, or a guarantee that a
-  successful mutation produces an event. A snapshot comes from the read
-  providers.
 - Linux monitors routes, links, neighbors, and interface addresses through
   Netlink. Windows monitors routes, interfaces, and unicast addresses through
   IP Helper; it has no neighbor watcher. macOS monitors routes, interfaces,
   neighbors, and addresses through PF_ROUTE.
-- No backend emits DNS events in Stage 0.13. DNS mutation must be followed by
-  `dns_config()` when a caller needs the resulting view.
-- A backend preserves its enqueue order, not a cross-domain total order. A
-  full bounded queue coalesces loss into `Event::ResyncRequired`; consumers
-  must re-read the indicated domain before interpreting subsequent ordinary
-  events.
-- Native sources frequently cannot distinguish create from modification.
-  `ChangeKind::Changed` is therefore the conservative result where the OS
-  does not provide an unambiguous lifecycle transition.
 
 Stages 0.15–0.20 must build transactions and declarative apply on these
 constraints rather than retroactively claiming atomicity or event guarantees
@@ -965,6 +956,77 @@ without cross-referencing three separate source files' doc comments. A
 future addition-tier subsection (opt-in, non-native capabilities layered on
 top of this matrix) is expected to extend this section rather than
 duplicate it.
+
+## Event Delivery Guarantees
+
+This section is the single canonical statement of what `Lattice::watch`/
+`watch_filtered` (backed by `EventProvider`/`EventReceiver`) actually
+promise. It consolidates guarantees that were previously scattered across
+`EventReceiver`'s own rustdoc (`crates/net-lattice-platform/src/
+event_provider.rs`), `ChangeKind`'s rustdoc (`crates/net-lattice-model/src/
+event.rs`), and this document's mutation-contract section above —
+cross-linking those doc comments rather than duplicating their wording.
+
+**Ordinary delivery is at-most-once, not at-least-once or exactly-once.** A
+backend enqueues each observed change once; nothing retries or duplicates an
+event. When a consumer falls behind and the bounded per-watcher queue fills,
+the backend drops the overflowing ordinary events rather than blocking the
+native producer or growing the queue unboundedly — Net Lattice never
+promises that every native change is eventually observed as its own event.
+
+**Overflow gets a guaranteed resync signal, not silent loss.** Whenever one
+or more ordinary events are dropped because the queue is full, the backend
+coalesces that loss into exactly one `Event::ResyncRequired` for the
+affected domain, delivered before the next ordinary event for that domain.
+A consumer that receives `Event::ResyncRequired` must re-read the indicated
+domain through its read provider before trusting subsequent ordinary events
+to reflect a coherent view — the resync signal itself is guaranteed to
+appear (it is not subject to the same drop as ordinary events), but the
+specific dropped changes it stands in for are not recoverable from the event
+stream.
+
+**Ordering is per-producer only, not global.** A receiver preserves the
+order in which its backend producer enqueued events, but makes **no**
+cross-domain ordering or causality guarantee — an event on one domain
+(routes) carries no ordering relationship to an event on another domain
+(interfaces), even if the underlying native changes were causally related.
+
+**No initial snapshot, and no self-mutation-delivery guarantee.** Starting a
+watch does not deliver the current state as synthetic events; a snapshot
+comes from the domain's own read provider (`RouteProvider::routes()` and
+similar), never from the event stream. A caller's own successful mutation is
+not guaranteed to produce a corresponding event — event delivery is a
+separate, eventually consistent signal path from the mutation/read contract
+described above, not a substitute for re-reading state after a mutation
+whose result the caller needs.
+
+**`ChangeKind::Changed` is a conservative fallback, not a lifecycle
+guarantee.** Native sources frequently cannot distinguish "object created"
+from "object modified" at the OS level. `ChangeKind::Changed` (see
+`ChangeKind`'s own rustdoc) is the result Net Lattice reports whenever the
+native source does not provide an unambiguous create/modify/remove
+transition; it carries no field-mask payload describing what changed today
+— a consumer that needs to know what changed re-reads the object through
+the relevant provider.
+
+**DNS has no event source.** No backend emits DNS change events; a caller
+must call `dns_config()` after a DNS mutation (or on any polling interval it
+chooses) to observe the resulting view.
+
+**Summary in explicit delivery-guarantee vocabulary:** ordinary per-object
+events are *at-most-once* (never duplicated, may be dropped under
+sustained backpressure); an overflow condition is *guaranteed* to be
+signaled through exactly one `Event::ResyncRequired` per affected domain
+before further ordinary events for that domain resume, but the guarantee
+covers only the *signal*, not recovery of the specific dropped changes.
+Net Lattice makes no exactly-once or fully-guaranteed-delivery claim
+anywhere in the event path.
+
+This section is expected to grow a further subsection covering
+addition-sourced events (non-native, opt-in event producers layered on top
+of this native event path) once that capability lands; extend this section
+in place rather than creating a second, competing "Event Delivery
+Guarantees" section elsewhere in this document.
 
 ## Explicit Non-Goals of This Architecture
 
