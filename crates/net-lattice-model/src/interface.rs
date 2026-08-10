@@ -5,6 +5,30 @@ use net_lattice_core::{Error, Id, Result};
 use crate::mac::MacAddress;
 
 /// Identifies an [`Interface`].
+///
+/// # Construction convention: OS ifindex widened, never hash-synthesized
+///
+/// Unlike route, neighbor, and address identity (which are hash-synthesized
+/// or natural-key comparisons over multiple fields), every `InterfaceId` in
+/// practice is constructed directly from the platform's native `u32`
+/// interface index (`ifindex` on Linux, the equivalent index on Windows and
+/// Darwin) widened to `u64` — e.g. `InterfaceId::new(u64::from(ifindex))`.
+/// This construction path is identical across all three backend
+/// implementations (`net-lattice-backend-linux`, `-windows`, `-darwin`); no
+/// backend ever derives an `InterfaceId` from a hash or any other source.
+///
+/// [`crate::diff::Diff::compute`] relies on this convention: it
+/// cross-references a raw `interface_index: u32` field captured on a
+/// snapshot entry (e.g. a neighbor or address's observed `interface_index`)
+/// against a typed `InterfaceId` by widening rather than by narrowing the
+/// `InterfaceId` back down — `InterfaceId::new(u64::from(entry.interface_index))`
+/// — rather than truncating an existing `InterfaceId`'s `u64` value down to
+/// `u32` for comparison. This is a deliberate style choice (both directions
+/// are equivalent given the construction convention above), not a
+/// correctness requirement: no current code ever constructs an `InterfaceId`
+/// with a value outside `u32`'s range, so no information loss is possible
+/// either way today. Any future caller minting an `InterfaceId` manually
+/// should preserve the same convention to keep this comparison meaningful.
 pub type InterfaceId = Id<Interface>;
 
 /// The kind of a network interface.
