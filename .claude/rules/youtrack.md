@@ -44,10 +44,17 @@ Every issue in `NL` carries:
   independent reviewer pass recorded (see below).
 - `Priority` — `Show-stopper` | `Critical` | `Major` | `Normal` | `Minor`.
   Set explicitly for `Bug` issues; optional for `Task`/`Story`.
-- `Role` — `Researcher` | `Architect` | `Implementer` | `Reviewer`. Marks
-  which role pipeline stage currently owns the issue, mirroring the
+- `Role` — `Researcher` | `Architect` | `Implementer` | `Reviewer` | `Primary`.
+  Marks which role pipeline stage currently owns the issue, mirroring the
   researcher → architect → implementer → reviewer pipeline in
-  `.claude/agents/`.
+  `.claude/agents/`. Use `Primary` (not one of the four pipeline roles) for
+  issues/comments that are the primary agent's own bookkeeping rather than a
+  dispatched role's work — decomposition, duplicate-closing, Stage
+  reconciliation across sibling Tasks, descoping, and other coordination the
+  primary agent does directly instead of folding a role subagent in. Set
+  `Role: Primary` on such an issue (and open its evidence comment with
+  "**Role:** Primary agent") so the board reflects who actually did the work,
+  the same way a dispatched role's issues carry its own name.
 - `Platform` (multi-value) — `Linux` | `Windows` | `Darwin` |
   `Cross-platform`. Set on Task/Bug issues whose scope is platform-specific;
   use `Cross-platform` for model/facade-only work.

@@ -43,8 +43,14 @@ available in the environment. Key endpoints:
 - `Stage` (state field, drives the Kanban board) — `Backlog` → `Develop` →
   `Review` → `Test` → `Staging` → `Done`.
 - `Priority` — `Show-stopper` | `Critical` | `Major` | `Normal` | `Minor`.
-- `Role` — `Researcher` | `Architect` | `Implementer` | `Reviewer`, mirroring
-  the pipeline in `.codex/agents/`.
+- `Role` — `Researcher` | `Architect` | `Implementer` | `Reviewer` | `Primary`,
+  mirroring the pipeline in `.codex/agents/`. Use `Primary` for issues/
+  comments that are the primary agent's own bookkeeping rather than a
+  dispatched role's work — decomposition, duplicate-closing, Stage
+  reconciliation across sibling Tasks, descoping, and other coordination done
+  directly instead of folding a role in. Open such a comment with "**Role:**
+  Primary agent" and set `Role: Primary` on the issue, same as a dispatched
+  role's issues carry its own name.
 - `Platform` (multi-value) — `Linux` | `Windows` | `Darwin` |
   `Cross-platform`.
 - `Sprint` — roadmap stage label (`0.16`, `0.17`, `0.18`, ...), separate
