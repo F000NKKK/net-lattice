@@ -910,6 +910,62 @@ the "Non-`Capability` backend-declared facts" callout above and the `Error`/
 `PlatformErrorCode` non-exhaustiveness note under `net-lattice-core` for the
 two open follow-up questions it surfaced.
 
+## Platform Support Matrix and Gaps
+
+Provider/mutator trait implementation is complete and at parity across all
+three native backends (`net-lattice-backend-linux`, `net-lattice-backend-
+windows`, `net-lattice-backend-darwin`) for every domain (route, interface,
+neighbor, address, DNS), plus `EventProvider` and the blanket-implemented
+`SnapshotProvider`. `.github/workflows/ci.yml` builds, clippies, and tests
+on all three native OS runners on every commit, so this parity is
+continuously verified, not documented once and left to drift.
+
+Three confirmed, already-tested platform gaps exist against that otherwise
+uniform baseline:
+
+- **Windows: no `NEIGHBOR_MONITORING` capability.** Windows has no native
+  neighbor-table-change notification mechanism wired up, so
+  `WindowsBackend::capabilities()` never sets
+  `Capability::NEIGHBOR_MONITORING` and therefore never advertises the
+  composite `Capability::MONITORING` either — every other monitoring
+  sub-flag (`ROUTE_MONITORING`, `INTERFACE_MONITORING`,
+  `ADDRESS_MONITORING`) is set. This is deliberate, not an oversight: see
+  `capabilities()` in `crates/net-lattice-backend-windows/src/lib.rs` and
+  its dedicated regression test
+  `windows_backend_does_not_advertise_neighbor_monitoring` in the same
+  file.
+- **Darwin: `RouteConfig::metric`/`Route::metric` unsupported.** No native
+  call reads or writes route metric through the macOS/BSD route-socket API
+  (see `crates/net-lattice-model/src/route.rs`). The value is silently
+  ignored on Darwin rather than rejected, and `Diff::compute` makes no
+  convergence promise for it on that platform (recorded architectural
+  decision, ADR-0010 §3(a)).
+- **Darwin: route-replace ordering and metric-support overrides.** Darwin
+  overrides the two non-`Capability` backend-declared facts described above
+  away from the Linux/Windows defaults: `route_replace_order()` returns
+  `RouteReplaceOrder::AddBeforeRemove` (instead of the default
+  `RemoveBeforeAdd`) and `supports_route_metric()` returns `false` (instead
+  of the default `true`), because Darwin's native route-delete key cannot
+  disambiguate an in-flight replacement the way Linux/Windows can. See
+  `crates/net-lattice-platform/src/route_provider.rs` for the trait method
+  definitions and defaults, and the Darwin backend's own `RouteMutator`
+  implementation for the overrides.
+
+These same two non-`Capability` backend-declared facts —
+`RouteMutator::supports_route_metric` and `RouteMutator::route_replace_order`
+(see "Non-`Capability` backend-declared facts" above) — are named again
+here because a reader scanning this platform-matrix section for "what
+differs between backends" should see them alongside the `Capability`-based
+gap, not only in the frozen-API checklist above.
+
+No other missing-capability or behavioral gap was found across the three
+backends beyond the three above; this section is the single place that
+consolidates them for a reader who wants "what's different per platform"
+without cross-referencing three separate source files' doc comments. A
+future addition-tier subsection (opt-in, non-native capabilities layered on
+top of this matrix) is expected to extend this section rather than
+duplicate it.
+
 ## Explicit Non-Goals of This Architecture
 
 - **No crate is Linux-, Windows-, or macOS-specific except the backend
