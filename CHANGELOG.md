@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `net-lattice-core::Error` is now `#[non_exhaustive]`, matching the
+  `#[non_exhaustive]` posture already carried by every other domain-shaped
+  public enum in the workspace (`InterfaceKind`, `Mutation`, `ApplyStep`,
+  `RouteChange`/`NeighborChange`/`AddressChange`, `Event`/`ChangeKind`,
+  etc.). Purely additive: no variant added or removed, no `Display`/
+  `is_*` behavior changed. External crates that exhaustively `match` on
+  `Error` without a wildcard arm must add one to keep compiling. Documented
+  the deliberate `Option` (`Ipv4PrefixLength::new`/`Ipv6PrefixLength::new`)
+  vs. `Result<Self, Error>` (`InterfaceConfig::new`) validation-failure
+  convention distinction in rustdoc, rather than unifying either direction.
+
 ## [0.20.0] - 2026-08-06
 
 ### Added

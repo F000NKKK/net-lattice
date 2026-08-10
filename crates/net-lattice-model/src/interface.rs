@@ -124,6 +124,20 @@ impl InterfaceConfig {
     /// Returns [`Error::InvalidState`] when no setting is requested or when
     /// `mtu` is zero. Platform-specific MTU constraints are checked by the
     /// backend at submission time.
+    ///
+    /// Returns `Result<Self, Error>` rather than `Option<Self>` by
+    /// deliberate convention: this constructor enforces a cross-field
+    /// precondition (at least one setting requested, and a nonzero `mtu`
+    /// when requested) where the specific [`Error::InvalidState`] variant
+    /// carries diagnostic value a bare `None` would lose, and
+    /// `net-lattice-model` already depends on `net_lattice_core::Error`
+    /// throughout its public surface, so reusing it here preserves one
+    /// uniform matchable failure type for callers composing multiple
+    /// fallible calls. Contrast with
+    /// `net_lattice_ip::Ipv4PrefixLength::new`/
+    /// `net_lattice_ip::Ipv6PrefixLength::new`, which return `Option`
+    /// because they reject only a single self-contained numeric range check
+    /// with no diagnostic value beyond in/out-of-range.
     pub fn new(
         interface_id: InterfaceId,
         admin_state: Option<DesiredAdminState>,

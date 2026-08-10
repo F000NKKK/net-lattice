@@ -6,6 +6,7 @@ use std::fmt;
 /// type (`std::io::Error`, a bare `errno`, a Windows `DWORD`). See
 /// ARCHITECTURE.md's Error Model for why.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// The operation requires privileges the caller does not have (e.g.
     /// `CAP_NET_ADMIN` on Linux, Administrator on Windows).
