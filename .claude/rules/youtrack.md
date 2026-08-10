@@ -271,6 +271,18 @@ quietly into a routine Sprint release.
 
 ## Decomposing a stage
 
+- Before filing any new Story/Task under an Epic, search for existing
+  children first (`mcp__youtrack__search_issues` with `subtask of: <Epic>`,
+  or read the Epic's own `linkedIssueCounts`/comments) — do not assume an
+  Epic's decomposition is empty just because your own turn didn't create it.
+  A prior session or a different agent may have already filed the Story/Task
+  tree (observed on Stage 0.21, 2026-08-10: NL-93..NL-98 already existed as
+  Track A/B Tasks under NL-87/NL-88 when a fresh decomposition pass filed
+  NL-119..NL-126 covering the identical scope, discovered only after both
+  sets had been implemented and reviewed — wasted a full implementer+
+  reviewer pass and required retroactively linking the older cards as
+  `duplicates` and closing them). Checking first is one search call; skipping
+  it risks redoing verified work under a second set of IDs.
 - Start from one Epic (a roadmap stage) and decompose it into the applicable
   model, platform, facade, backend, test, CI, documentation, and packaging
   Tasks, same as the retired `audit.md` decomposition rule.
