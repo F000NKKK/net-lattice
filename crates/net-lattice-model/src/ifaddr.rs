@@ -19,9 +19,13 @@ pub type InterfaceAddressId = Id<InterfaceAddress>;
 ///
 /// Identity for facade-level matching is `(interface_id, address)` — the
 /// same natural key [`crate::diff::Diff::addresses`] uses to match requested
-/// address intents against observed [`InterfaceAddress`] entries.
-/// `broadcast` is not part of the key: it is a value carried alongside the
-/// identity, not a distinguishing field.
+/// address intents against observed [`InterfaceAddress`] entries. This is
+/// narrower than the derived `PartialEq`/`Eq`/`Hash`, which also compares
+/// `broadcast`: two values sharing the same `(interface_id, address)` but a
+/// different `broadcast` share the same identity/match key yet are *not*
+/// equal, because `broadcast` is a value carried alongside the identity, not
+/// a distinguishing field — the same pattern
+/// [`crate::neighbor::StaticNeighbor`] uses for `mac`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct NewInterfaceAddress {

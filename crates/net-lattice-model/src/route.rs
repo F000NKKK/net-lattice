@@ -76,8 +76,11 @@ impl Route {
 /// a full route description rather than a sparse patch, so this is a
 /// full-value intent type like `StaticNeighbor`, not a partial-patch type
 /// like `InterfaceConfig`. Identity for facade-level matching is
-/// `destination + gateway + metric + interface_index` (all four fields, via
-/// the derived `PartialEq`/`Eq`/`Hash`).
+/// `destination + gateway + metric + interface_index` — here identity and
+/// derived value equality (`PartialEq`/`Eq`/`Hash`) coincide: every field
+/// that makes up the struct is also part of the identity/match key, unlike
+/// [`crate::neighbor::StaticNeighbor`], where `mac` is excluded from
+/// identity but still compared by the derived equality.
 ///
 /// `#[non_exhaustive]`: platform-specific route-intent fields may be added
 /// later without breaking callers who construct a `RouteConfig` via

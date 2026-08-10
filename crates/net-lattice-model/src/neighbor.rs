@@ -92,10 +92,17 @@ impl NeighborEntry {
 /// request carries neither a [`NeighborId`] (that identifier is synthesized
 /// from an OS-observed interface index and address, and no native API
 /// accepts it back as input) nor a [`NeighborState`] (state is reported by
-/// the OS, not chosen by the caller). Identity is `(interface_id, address)`.
-/// `mac` is required, not optional, because this stage only creates static
-/// L2 mappings; a caller cannot request an incomplete or dynamically
-/// resolved entry through this type.
+/// the OS, not chosen by the caller). Identity for facade-level matching is
+/// `(interface_id, address)` — this is narrower than the derived
+/// `PartialEq`/`Eq`/`Hash`, which also compares `mac`: two `StaticNeighbor`
+/// values with the same `(interface_id, address)` but different `mac` share
+/// the same identity/match key yet are *not* equal, because `mac` is desired
+/// intent (a replacement request for the mapping), not part of what
+/// identifies the entry. See
+/// `static_neighbor_identity_is_interface_and_address` below for the
+/// behavior this produces. `mac` is required, not optional, because this
+/// stage only creates static L2 mappings; a caller cannot request an
+/// incomplete or dynamically resolved entry through this type.
 ///
 /// `#[non_exhaustive]`: platform-specific static-neighbor fields (for
 /// example a router flag or IPv6 lifetime) may be added later without
