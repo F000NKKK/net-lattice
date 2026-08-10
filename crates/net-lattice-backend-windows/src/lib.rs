@@ -2833,6 +2833,15 @@ mod tests {
     /// exit path (success, assertion failure, or panic) via
     /// `RestoreDnsConfig`'s `Drop` implementation, mirroring
     /// `RestoreInterfaceConfig` above.
+    ///
+    /// `search_domains` is checked with a "desired entries are present"
+    /// containment assertion rather than exact equality: on a domain-joined
+    /// host, `GetAdaptersAddresses`'s per-adapter `DnsSuffix` field also
+    /// reports the connection's primary/domain DNS suffix, a value managed
+    /// separately from the `SearchList` this mutator writes, and observed to
+    /// persist in the read-after-write on real Windows CI runners.
+    /// `nameservers` has no such ambient source and is still asserted with
+    /// exact equality.
     #[test]
     #[ignore = "requires Administrator; run from elevated cmd/PowerShell: cargo test -p net-lattice-backend-windows dns_configuration_round_trips_through_the_kernel -- --ignored"]
     fn dns_configuration_round_trips_through_the_kernel() {
@@ -2871,13 +2880,36 @@ mod tests {
                     panic!("set_dns_config failed - are you running as Administrator?: {error:?}")
                 });
             assert_eq!(observed.nameservers, desired.nameservers);
-            assert_eq!(observed.search_domains, desired.search_domains);
+            // Not an exact-equality check: on a domain-joined machine,
+            // `GetAdaptersAddresses`'s per-adapter `DnsSuffix` field reports
+            // the adapter's connection-specific/primary DNS suffix, which is
+            // populated by domain membership (DHCP/Group Policy) rather than
+            // by `SetDnsSettings`/`SetInterfaceDnsSettings`'s `SearchList`
+            // flag. `set_dns_config` writes the search list, but has no way
+            // to clear that separately-managed primary suffix, so on a
+            // domain-joined host (e.g. some cloud CI runners) it legitimately
+            // persists alongside whatever search list this test requests.
+            // Assert only that the desired entry is present, not that it is
+            // the sole entry.
+            for domain in &desired.search_domains {
+                assert!(
+                    observed.search_domains.contains(domain),
+                    "expected search_domains {:?} to contain {domain:?}",
+                    observed.search_domains
+                );
+            }
 
             let read_after_write = backend
                 .dns_config()
                 .expect("GetAdaptersAddresses should not require privilege");
             assert_eq!(read_after_write.nameservers, desired.nameservers);
-            assert_eq!(read_after_write.search_domains, desired.search_domains);
+            for domain in &desired.search_domains {
+                assert!(
+                    read_after_write.search_domains.contains(domain),
+                    "expected search_domains {:?} to contain {domain:?}",
+                    read_after_write.search_domains
+                );
+            }
         }
 
         let restored = backend
