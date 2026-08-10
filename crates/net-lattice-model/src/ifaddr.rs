@@ -16,6 +16,12 @@ pub type InterfaceAddressId = Id<InterfaceAddress>;
 /// omitted, the platform selects its normal broadcast behaviour. Point-to-
 /// point peers, lifetimes, scope, and platform-specific flags are reserved
 /// for a future extension rather than silently guessed here.
+///
+/// Identity for facade-level matching is `(interface_id, address)` — the
+/// same natural key [`crate::diff::Diff::addresses`] uses to match requested
+/// address intents against observed [`InterfaceAddress`] entries.
+/// `broadcast` is not part of the key: it is a value carried alongside the
+/// identity, not a distinguishing field.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct NewInterfaceAddress {
