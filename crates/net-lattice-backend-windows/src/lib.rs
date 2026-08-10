@@ -2826,6 +2826,67 @@ mod tests {
         let _ = config;
     }
 
+    /// Exercises the complete `SetDnsSettings`/`SetInterfaceDnsSettings`
+    /// mutation path against the kernel: capture the current adapter DNS
+    /// configuration, apply a documentation-only test value, verify it via
+    /// a read-after-write, and restore the original configuration on every
+    /// exit path (success, assertion failure, or panic) via
+    /// `RestoreDnsConfig`'s `Drop` implementation, mirroring
+    /// `RestoreInterfaceConfig` above.
+    #[test]
+    #[ignore = "requires Administrator; run from elevated cmd/PowerShell: cargo test -p net-lattice-backend-windows dns_configuration_round_trips_through_the_kernel -- --ignored"]
+    fn dns_configuration_round_trips_through_the_kernel() {
+        let _guard = windows_test_guard();
+
+        struct RestoreDnsConfig<'a> {
+            backend: &'a WindowsBackend,
+            original: NewDnsConfig,
+        }
+
+        impl Drop for RestoreDnsConfig<'_> {
+            fn drop(&mut self) {
+                let _ = self.backend.set_dns_config(self.original.clone());
+            }
+        }
+
+        let backend = WindowsBackend::new().expect("failed to create Windows backend");
+        let before = backend
+            .dns_config()
+            .expect("GetAdaptersAddresses should not require privilege");
+        let original =
+            NewDnsConfig::with(before.nameservers.clone(), before.search_domains.clone());
+        let desired = NewDnsConfig::with(
+            vec![IpAddress::from(Ipv4Address::new(203, 0, 113, 53))],
+            vec!["net-lattice-test.invalid".to_string()],
+        );
+
+        {
+            let _restore = RestoreDnsConfig {
+                backend: &backend,
+                original: original.clone(),
+            };
+            let observed = backend
+                .set_dns_config(desired.clone())
+                .unwrap_or_else(|error| {
+                    panic!("set_dns_config failed - are you running as Administrator?: {error:?}")
+                });
+            assert_eq!(observed.nameservers, desired.nameservers);
+            assert_eq!(observed.search_domains, desired.search_domains);
+
+            let read_after_write = backend
+                .dns_config()
+                .expect("GetAdaptersAddresses should not require privilege");
+            assert_eq!(read_after_write.nameservers, desired.nameservers);
+            assert_eq!(read_after_write.search_domains, desired.search_domains);
+        }
+
+        let restored = backend
+            .dns_config()
+            .expect("GetAdaptersAddresses should not require privilege");
+        assert_eq!(restored.nameservers, before.nameservers);
+        assert_eq!(restored.search_domains, before.search_domains);
+    }
+
     #[test]
     fn dns_nameserver_list_preserves_requested_order() {
         let config = NewDnsConfig::with(

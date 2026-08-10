@@ -2010,6 +2010,79 @@ mod tests {
         let _ = config;
     }
 
+    /// Guards a real `/etc/resolv.conf` write so a test failure (assertion
+    /// or panic) still restores the original resolver configuration this
+    /// test environment had before the test ran, mirroring
+    /// `InterfaceRestore`'s `Drop`-based restoration for interface state.
+    struct DnsRestore<'a> {
+        backend: &'a LinuxBackend,
+        original: NewDnsConfig,
+    }
+
+    impl Drop for DnsRestore<'_> {
+        fn drop(&mut self) {
+            // A test failure must not leave a privileged runner's resolver
+            // configuration changed. There is no useful way for `Drop` to
+            // report a second failure, so the test also verifies
+            // restoration below.
+            let _ = self.backend.set_dns_config(self.original.clone());
+        }
+    }
+
+    /// Requires `CAP_NET_ADMIN` (root, or `sudo -E cargo test -- --ignored`
+    /// in this crate). Not run by default for the same reason as the other
+    /// privileged round-trip tests: most development and CI environments
+    /// don't grant it, and this test would otherwise fail with
+    /// `PermissionDenied` rather than being skipped.
+    ///
+    /// Captures the real `/etc/resolv.conf` present on this test
+    /// environment, writes a documentation-only test value (RFC 5737
+    /// `203.0.113.53`, TEST-NET-3, plus a `net-lattice-test.invalid` search
+    /// domain), verifies the write via a read-after-write, and restores the
+    /// original configuration on every exit path (success, assertion
+    /// failure, or panic) via `DnsRestore`'s `Drop` implementation.
+    #[test]
+    #[ignore = "requires CAP_NET_ADMIN; run with `sudo -E cargo test -p net-lattice-backend-linux dns_configuration_round_trips_through_the_kernel -- --ignored`"]
+    fn dns_configuration_round_trips_through_the_kernel() {
+        let _guard = kernel_test_guard();
+        let backend = LinuxBackend::new().expect("failed to open a Netlink connection");
+        let before = backend
+            .dns_config()
+            .expect("/etc/resolv.conf should be readable before the test");
+        let original =
+            NewDnsConfig::with(before.nameservers.clone(), before.search_domains.clone());
+        let desired = NewDnsConfig::with(
+            vec![IpAddress::from(Ipv4Address::new(203, 0, 113, 53))],
+            vec!["net-lattice-test.invalid".to_string()],
+        );
+
+        {
+            let _restore = DnsRestore {
+                backend: &backend,
+                original: original.clone(),
+            };
+            let observed = backend
+                .set_dns_config(desired.clone())
+                .unwrap_or_else(|error| {
+                    panic!("set_dns_config failed - are you running with CAP_NET_ADMIN?: {error:?}")
+                });
+            assert_eq!(observed.nameservers, desired.nameservers);
+            assert_eq!(observed.search_domains, desired.search_domains);
+
+            let read_after_write = backend
+                .dns_config()
+                .expect("/etc/resolv.conf should be readable after the write");
+            assert_eq!(read_after_write.nameservers, desired.nameservers);
+            assert_eq!(read_after_write.search_domains, desired.search_domains);
+        }
+
+        let restored = backend
+            .dns_config()
+            .expect("/etc/resolv.conf should be readable after restoration");
+        assert_eq!(restored.nameservers, before.nameservers);
+        assert_eq!(restored.search_domains, before.search_domains);
+    }
+
     #[test]
     #[ignore = "requires a working Netlink socket; run with the privileged backend coverage job"]
     fn invalid_mutations_exercise_kernel_error_paths() {
