@@ -1128,7 +1128,7 @@ in this document.
 The full model above is a target, not a starting point. Crates and modules
 are introduced only when there is real implementation work for them:
 
-Rows through 0.20 are implemented and available today; rows from 0.21 onward
+Rows through 0.21 are implemented and available today; rows from 0.22 onward
 describe planned, not-yet-built work.
 
 | Stage | Scope |
