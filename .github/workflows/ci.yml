@@ -45,13 +45,13 @@ jobs:
           components: rustfmt, clippy, llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.85.6
+        uses: taiki-e/install-action@v2.85.10
         with:
           tool: cargo-llvm-cov
 
       # v2.9.1 uses the current Node action runtime; do not suppress runtime
       # warnings with NODE_OPTIONS.
-      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           key: coverage-${{ matrix.os }}
           cache-targets: false
