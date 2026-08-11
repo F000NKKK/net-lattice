@@ -77,27 +77,27 @@ jobs:
 
       - name: collect coverage from privileged Linux tests
         if: matrix.os == 'ubuntu-latest'
-        run: sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR/llvm-cov-target" "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" cargo llvm-cov test -p net-lattice-backend-linux --all-features --no-report -- --ignored
+        run: sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR/llvm-cov-target" "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" cargo llvm-cov test -p net-lattice-backend-linux --all-features --no-report -- --ignored --nocapture
 
       - name: collect facade transaction coverage on privileged Linux
         if: matrix.os == 'ubuntu-latest'
-        run: sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR/llvm-cov-target" "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" cargo llvm-cov test -p net-lattice --all-features --no-report -- --ignored
+        run: sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR/llvm-cov-target" "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" cargo llvm-cov test -p net-lattice --all-features --no-report -- --ignored --nocapture
 
       - name: collect coverage from privileged macOS tests
         if: matrix.os == 'macos-latest'
-        run: sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR/llvm-cov-target" "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" cargo llvm-cov test -p net-lattice-backend-darwin --all-features --no-report -- --ignored
+        run: sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR/llvm-cov-target" "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" cargo llvm-cov test -p net-lattice-backend-darwin --all-features --no-report -- --ignored --nocapture
 
       - name: collect facade transaction coverage on privileged macOS
         if: matrix.os == 'macos-latest'
-        run: sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR/llvm-cov-target" "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" cargo llvm-cov test -p net-lattice --all-features --no-report -- --ignored
+        run: sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR/llvm-cov-target" "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" cargo llvm-cov test -p net-lattice --all-features --no-report -- --ignored --nocapture
 
       - name: collect coverage from privileged Windows tests
         if: matrix.os == 'windows-latest'
-        run: $env:CARGO_TARGET_DIR = "$env:CARGO_TARGET_DIR/llvm-cov-target"; cargo llvm-cov test -p net-lattice-backend-windows --all-features --no-report -- --ignored
+        run: $env:CARGO_TARGET_DIR = "$env:CARGO_TARGET_DIR/llvm-cov-target"; cargo llvm-cov test -p net-lattice-backend-windows --all-features --no-report -- --ignored --nocapture
 
       - name: collect facade transaction coverage on privileged Windows
         if: matrix.os == 'windows-latest'
-        run: $env:CARGO_TARGET_DIR = "$env:CARGO_TARGET_DIR/llvm-cov-target"; cargo llvm-cov test -p net-lattice --all-features --no-report -- --ignored
+        run: $env:CARGO_TARGET_DIR = "$env:CARGO_TARGET_DIR/llvm-cov-target"; cargo llvm-cov test -p net-lattice --all-features --no-report -- --ignored --nocapture
 
       # Keep the detailed report visible without making platform-specific
       # coverage percentages a release gate. Native backend coverage is
