@@ -213,10 +213,42 @@ facade feature.
 | DNS resolver inspection | ✅ | ✅ | ✅ |
 | DNS resolver mutation | ✅ | ✅ | ✅ |
 | Route/interface/address change monitoring | ✅ | ✅ | ✅ |
-| Neighbor change monitoring | ✅ | — | ✅ |
+| Neighbor change monitoring | ✅ | ⚠ | ✅ |
 | All-domain monitoring (`watch()`) | ✅ | — | ✅ |
 | Async route/interface/address monitoring | ✅ | ✅ | ✅ |
 | Async neighbor/all-domain monitoring | ✅ | — | ✅ |
+
+✅ native `Capability`, — unsupported, ⚠ no native `Capability` but an opt-in,
+weaker-guarantee `Addition` substitute is available — see the Addition
+matrix below.
+
+### Addition tier
+
+`Addition` is a separate, disjoint flag type from `Capability`: a backend
+reports one through `AdditionProvider::additions()` only when it has no
+native mechanism for the underlying feature at all, and requesting it goes
+through `Lattice::watch_with_additions` rather than `watch`/`watch_filtered`.
+An `Addition` is never rendered as an ordinary `Capability` checkmark in
+either matrix on this page.
+
+| Addition | Linux | Windows | macOS |
+|---|:---:|:---:|:---:|
+| Neighbor change monitoring via polling (`NEIGHBOR_MONITORING_POLLING`) | — | ✅ | — |
+
+Linux and macOS have native `Capability::NEIGHBOR_MONITORING` (✅ in the
+matrix above), so neither reports this `Addition` — `AdditionProvider`'s
+default (`additions()` → empty) applies unchanged on both. Windows reports
+`Addition::NEIGHBOR_MONITORING_POLLING`: an opt-in substitute that
+synthesizes `Added`/`Removed`/`Changed` events from successive polls of the
+neighbor table, at a weaker latency/ordering/coalescing/resource-cost tier
+than native event delivery (see ARCHITECTURE.md's "Platform Support Matrix
+and Gaps" and "Event Delivery Guarantees" sections for the full guarantee
+and this convention's rationale). An `additions` bit not reported by the
+connected backend's `AdditionProvider::additions()` is silently not
+activated rather than an error, matching `Capability`'s own "query, don't
+assume" contract, so a caller may request `NEIGHBOR_MONITORING_POLLING`
+unconditionally and simply receive no addition-sourced events on a backend
+that does not report it.
 
 Static neighbor mutation is a request/response native call (`RTM_NEWNEIGH`/
 `RTM_DELNEIGH`, `CreateIpNetEntry2`/`DeleteIpNetEntry2`, `PF_ROUTE`'s
@@ -225,24 +257,8 @@ Static neighbor mutation is a request/response native call (`RTM_NEWNEIGH`/
 support does not imply native change notifications for the neighbor table.
 Check `Capability::NEIGHBOR_MONITORING` (the "Neighbor change monitoring"
 row above) before watching for neighbor-table changes; it is currently
-advertised on Linux and macOS, but not Windows.
-
-Windows's missing native neighbor-change monitoring has an opt-in,
-non-native substitute: the `Addition::NEIGHBOR_MONITORING_POLLING`
-capability, consumed through `Lattice::watch_with_additions` rather than
-`watch`/`watch_filtered`. This does not change the "Neighbor change
-monitoring" row above — `Capability::NEIGHBOR_MONITORING` is still
-unavailable on Windows, and an `Addition` is never rendered as an ordinary
-`Capability` checkmark in this or any other per-backend matrix (see
-ARCHITECTURE.md's "Platform Support Matrix and Gaps" section for the
-warning-marker convention and the addition's weaker delivery guarantees —
-bounded polling latency, no ordering relative to native-sourced events, and
-possible coalescing of opposite changes within one poll interval). An
-`additions` bit not reported by the connected backend's
-`AdditionProvider::additions()` is silently not activated rather than an
-error, matching `Capability`'s own "query, don't assume" contract, so a
-caller may request `NEIGHBOR_MONITORING_POLLING` unconditionally and simply
-receive no addition-sourced events on a backend that does not report it.
+advertised on Linux and macOS, but not Windows — see the "Addition tier"
+section above for Windows's opt-in polling substitute.
 
 ### Event delivery
 
