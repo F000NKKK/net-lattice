@@ -30,9 +30,9 @@ use net_lattice_model::neighbor::{NeighborEntry, NeighborId, NeighborState, Stat
 use net_lattice_model::route::{Route, RouteConfig, RouteId};
 use net_lattice_model::{IpAddress, Network};
 use net_lattice_platform::{
-    AddressMutator, AddressProvider, Capability, CapabilityProvider, DnsMutator, DnsProvider,
-    EventProvider, EventReceiver, InterfaceMutator, InterfaceProvider, NeighborMutator,
-    NeighborProvider, RouteMutator, RouteProvider, RouteReplaceOrder,
+    AdditionProvider, AddressMutator, AddressProvider, Capability, CapabilityProvider, DnsMutator,
+    DnsProvider, EventProvider, EventReceiver, InterfaceMutator, InterfaceProvider,
+    NeighborMutator, NeighborProvider, RouteMutator, RouteProvider, RouteReplaceOrder,
 };
 #[cfg(feature = "async")]
 use net_lattice_platform::{TokioEventProvider, TokioEventReceiver};
@@ -2293,6 +2293,13 @@ impl EventProvider for DarwinBackend {
         }))
     }
 }
+
+/// Darwin has a native `PF_ROUTE` push subscription for neighbor-table
+/// changes (see [`EventProvider::watch_filtered`] above), so it has no
+/// addition-tier workaround to offer — the default `AdditionProvider`
+/// methods (report no additions, reject any `watch_addition` request) are
+/// exactly correct here at zero extra code.
+impl AdditionProvider for DarwinBackend {}
 
 /// PF_ROUTE is a blocking descriptor on macOS. The native source therefore
 /// stays on its dedicated reader thread, but writes directly to the bounded

@@ -881,31 +881,36 @@ a backend declare about itself" will miss these two methods.
 - **`monitoring` module** (change events, filters, monitoring provider
   traits): `EventStream` (feature-gated `async`), `ChangeKind`, `Event`,
   `EventDomain`, `EventFilter`, `TokioEventProvider` (feature-gated
-  `async`), `EventProvider`, `EventReceiver`.
+  `async`), `EventProvider`, `EventReceiver`, `Addition`, `AdditionProvider`.
 - **`backend` module** (the one-stop surface for third-party backend
   authors; re-exports items also reachable via `model`/`mutation`/
   `monitoring` above, plus `LatticeBackend` and `CapabilityProvider`):
   `LatticeBackend`, `CurrentState`, `AddressMutator`, `AddressProvider`,
-  `CapabilityProvider`, `DnsMutator`, `DnsProvider`, `EventProvider`,
-  `EventReceiver`, `EventSender`, `InterfaceMutator`, `InterfaceProvider`,
-  `NeighborMutator`, `NeighborProvider`, `RouteMutator`, `RouteProvider`,
-  `RouteReplaceOrder`, `SnapshotProvider`, plus feature-gated (`async`)
-  `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
+  `Addition`, `AdditionProvider`, `CapabilityProvider`, `DnsMutator`,
+  `DnsProvider`, `EventProvider`, `EventReceiver`, `EventSender`,
+  `InterfaceMutator`, `InterfaceProvider`, `NeighborMutator`,
+  `NeighborProvider`, `RouteMutator`, `RouteProvider`, `RouteReplaceOrder`,
+  `SnapshotProvider`, plus feature-gated (`async`) `TokioEventProvider`,
+  `TokioEventReceiver`, `TokioEventSender`.
 - **`LatticeBackend`** — the compile-time bound a third-party backend must
   satisfy; its exact set of supertraits (`RouteProvider`/`RouteMutator`/
   `InterfaceProvider`/`InterfaceMutator`/`DnsMutator`/`NeighborProvider`/
   `NeighborMutator`/`AddressProvider`/`AddressMutator`/`EventProvider`/
-  `CapabilityProvider`, each bound to the concrete `net-lattice-model`
-  type) is itself part of the frozen contract: widening or narrowing it is
-  a breaking change for every third-party backend implementation.
+  `AdditionProvider`/`CapabilityProvider`, each bound to the concrete
+  `net-lattice-model` type) is itself part of the frozen contract: widening
+  or narrowing it is a breaking change for every third-party backend
+  implementation. `AdditionProvider` was added as a required supertrait in
+  Stage 0.21 (ADR-0014); it is additive-safe for every existing and
+  third-party backend because both of its methods are default-provided, so
+  no existing implementation needed a code change to keep compiling.
 - **`Lattice<B>` public methods**: `routes`, `add_route`, `remove_route`,
   `interfaces`, `set_interface_config`, `dns_config`, `set_dns_config`,
   `neighbors`, `add_static_neighbor`, `remove_static_neighbor`,
   `addresses`, `add_address`, `remove_address`, `current_state`, `apply`,
   `diff`, `validate_plan`, `snapshot_for_mutation`, `execute_plan`,
   `execute_apply_plan`, `capabilities`, `supports`, `watch`, `watch_async`
-  (feature-gated `async`), `watch_filtered`, and the per-platform
-  `connect` constructors (one `#[cfg(target_os = "...")]`-gated
+  (feature-gated `async`), `watch_filtered`, `watch_with_additions`, and the
+  per-platform `connect` constructors (one `#[cfg(target_os = "...")]`-gated
   implementation per supported OS, same public signature `fn connect() ->
   Result<Self>` on every platform).
 

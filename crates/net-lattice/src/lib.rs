@@ -223,9 +223,9 @@ use net_lattice_platform::DnsProvider;
 #[cfg(feature = "async")]
 use net_lattice_platform::TokioEventProvider;
 use net_lattice_platform::{
-    AddressMutator, AddressProvider, DnsMutator, EventProvider, EventReceiver, InterfaceMutator,
-    InterfaceProvider, NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
-    SnapshotProvider,
+    Addition, AdditionProvider, AddressMutator, AddressProvider, DnsMutator, EventProvider,
+    EventReceiver, EventSender, InterfaceMutator, InterfaceProvider, NeighborMutator,
+    NeighborProvider, RouteMutator, RouteProvider, SnapshotProvider,
 };
 pub use net_lattice_platform::{Capability, CapabilityProvider};
 
@@ -320,10 +320,10 @@ pub mod monitoring {
     #[doc(inline)]
     pub use net_lattice_platform::TokioEventProvider;
     #[doc(inline)]
-    pub use net_lattice_platform::{EventProvider, EventReceiver};
+    pub use net_lattice_platform::{Addition, AdditionProvider, EventProvider, EventReceiver};
 }
 
-#[cfg(test)]
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
@@ -334,7 +334,7 @@ use std::time::Instant;
 /// each trait it implements. [`LatticeBackend`] (a crate-local item, not a
 /// re-export) and [`CapabilityProvider`] (a cross-cutting root-only item,
 /// not a domain re-export) both resolve at the bare crate root; every other
-/// item re-exported in this module — [`CurrentState`] and the remaining 12
+/// item re-exported in this module — [`CurrentState`] and the remaining 13
 /// provider/mutator/event traits — resolves only through
 /// [`model`]/[`mutation`]/[`monitoring`] and here, not at the crate root.
 /// Application code that only consumes [`Lattice`] should
@@ -346,10 +346,10 @@ pub mod backend {
     pub use crate::LatticeBackend;
     pub use net_lattice_model::snapshot::CurrentState;
     pub use net_lattice_platform::{
-        AddressMutator, AddressProvider, CapabilityProvider, DnsMutator, DnsProvider,
-        EventProvider, EventReceiver, EventSender, InterfaceMutator, InterfaceProvider,
-        NeighborMutator, NeighborProvider, RouteMutator, RouteProvider, RouteReplaceOrder,
-        SnapshotProvider,
+        Addition, AdditionProvider, AddressMutator, AddressProvider, CapabilityProvider,
+        DnsMutator, DnsProvider, EventProvider, EventReceiver, EventSender, InterfaceMutator,
+        InterfaceProvider, NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
+        RouteReplaceOrder, SnapshotProvider,
     };
     #[cfg(feature = "async")]
     pub use net_lattice_platform::{TokioEventProvider, TokioEventReceiver, TokioEventSender};
@@ -389,6 +389,7 @@ pub trait LatticeBackend:
     + AddressProvider<InterfaceAddress = InterfaceAddress>
     + AddressMutator<NewInterfaceAddress = NewInterfaceAddress, InterfaceAddress = InterfaceAddress>
     + EventProvider<Event = Event, EventFilter = EventFilter>
+    + AdditionProvider
     + CapabilityProvider
 {
 }
@@ -406,6 +407,7 @@ impl<B> LatticeBackend for B where
             NewInterfaceAddress = NewInterfaceAddress,
             InterfaceAddress = InterfaceAddress,
         > + EventProvider<Event = Event, EventFilter = EventFilter>
+        + AdditionProvider
         + CapabilityProvider
 {
 }
@@ -413,6 +415,60 @@ impl<B> LatticeBackend for B where
 /// The top-level entry point: a connected backend for the current system.
 pub struct Lattice<B: LatticeBackend> {
     backend: B,
+}
+
+/// Backend-owned subscription guard attached to a
+/// [`Lattice::watch_with_additions`] receiver. Owns both the shutdown signal
+/// and every fan-in thread's [`std::thread::JoinHandle`] (one for the native
+/// watcher, one per activated [`Addition`]); dropping it stops every fan-in
+/// thread and joins it before returning, so a dropped receiver has fully
+/// torn down before `drop` returns.
+struct AdditionMergeGuard {
+    stop: Arc<AtomicBool>,
+    handles: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for AdditionMergeGuard {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        for handle in self.handles.drain(..) {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// Forwarding-fan-in poll interval: how often a fan-in thread re-checks the
+/// shutdown flag between events. Bounds how long
+/// [`AdditionMergeGuard::drop`] can block joining a thread that is currently
+/// idle-waiting on its source receiver.
+const FAN_IN_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Spawns a thread that forwards every event from `source` into `sender`
+/// until `source` disconnects, `sender`'s last other clone is dropped, or
+/// `stop` is set. Used by [`Lattice::watch_with_additions`] to fan native and
+/// addition-sourced events into one merged [`EventReceiver`].
+fn spawn_event_fan_in(
+    source: EventReceiver<Event>,
+    sender: EventSender<Event>,
+    stop: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        while !stop.load(Ordering::SeqCst) {
+            match source.recv_timeout(FAN_IN_POLL_INTERVAL) {
+                Ok(Some(event)) => {
+                    if !sender.send(event, Event::resync_all()) {
+                        break;
+                    }
+                }
+                Ok(None) => continue,
+                Err(Error::Disconnected) => break,
+                Err(error) => {
+                    let _ = sender.send_error(error);
+                    break;
+                }
+            }
+        }
+    })
 }
 
 /// Running conflict-detection state threaded across one plan's preflight,
@@ -1196,6 +1252,58 @@ impl<B: LatticeBackend> Lattice<B> {
         self.backend.watch_filtered(filter)
     }
 
+    /// Like [`Self::watch_filtered`], but also activates the requested
+    /// [`Addition`]s and fans their synthesized events into the same
+    /// receiver as the native, filter-selected events. See ADR-0014
+    /// (`Addition`/`AdditionProvider`'s own rustdoc) for the addition-tier
+    /// quality/guarantee caveats: addition-sourced events are ordinary
+    /// [`Event`] values once merged, but carry a documented weaker guarantee
+    /// tier (bounded-by-poll-interval latency, no ordering guarantee
+    /// relative to native events, no coalescing across a poll interval).
+    ///
+    /// An `additions` bit not currently reported by
+    /// [`AdditionProvider::additions`] on the connected backend is silently
+    /// not activated — its bit is simply absent from the merged stream —
+    /// rather than an error, matching [`Capability`]'s own "query, don't
+    /// assume" caller contract. `filter` selection follows the same
+    /// per-domain capability rules as [`Self::watch_filtered`].
+    ///
+    /// Dropping the returned [`EventReceiver`] tears down both the native
+    /// subscription and every addition fan-in thread this call started.
+    pub fn watch_with_additions(
+        &self,
+        filter: EventFilter,
+        additions: Addition,
+    ) -> Result<EventReceiver<Event>> {
+        self.ensure_monitoring_for(&filter)?;
+        let native = self.backend.watch_filtered(filter)?;
+        let requested = self.backend.additions() & additions;
+        if requested.is_empty() {
+            return Ok(native);
+        }
+
+        let (sender, receiver) = EventReceiver::bounded();
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut handles = Vec::new();
+        handles.push(spawn_event_fan_in(
+            native,
+            sender.clone(),
+            Arc::clone(&stop),
+        ));
+        for bit in requested.iter() {
+            if let Ok(addition_receiver) = self.backend.watch_addition(bit) {
+                handles.push(spawn_event_fan_in(
+                    addition_receiver,
+                    sender.clone(),
+                    Arc::clone(&stop),
+                ));
+            }
+        }
+        drop(sender);
+
+        Ok(receiver.with_subscription(AdditionMergeGuard { stop, handles }))
+    }
+
     fn ensure_monitoring_for(&self, filter: &EventFilter) -> Result<()> {
         let capabilities = self.capabilities();
         let supported = [
@@ -1284,6 +1392,32 @@ mod tests {
         fail_events: bool,
         fail_mutations: bool,
         fail_dns_read: bool,
+        /// [`Addition`]s this backend reports via [`AdditionProvider::additions`].
+        /// Defaults to [`Addition::empty()`] for every existing test, matching
+        /// a backend with no addition-tier workaround.
+        additions: Addition,
+        /// One-shot addition event source consumed by
+        /// [`AdditionProvider::watch_addition`]. `None` (the default) makes
+        /// `watch_addition` fail even for a bit `additions` reports, mirroring
+        /// a misconfigured backend; tests that exercise a real addition set
+        /// this explicitly.
+        addition_receiver: std::sync::Mutex<Option<EventReceiver<Event>>>,
+        /// Counts how many times the [`EventProvider::watch_filtered`]
+        /// subscription guard this backend attaches to every watcher has been
+        /// dropped, so a test can observe native-subscription teardown.
+        native_drops: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    /// Dropped alongside a [`TestBackend`] watcher's native subscription;
+    /// increments the backend's `native_drops` counter so a test can confirm
+    /// [`Lattice::watch_with_additions`] tears down the native subscription,
+    /// not only its addition fan-in threads.
+    struct NativeDropGuard(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Drop for NativeDropGuard {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
     fn network() -> Network {
@@ -1593,15 +1727,33 @@ mod tests {
                 id: RouteId::new(1),
                 kind: ChangeKind::Added,
             };
+            let guard = NativeDropGuard(Arc::clone(&self.native_drops));
             if filter.matches(event) {
                 assert!(sender.send(event, Event::resync_all()));
-                Ok(receiver)
+                Ok(receiver.with_subscription((sender, guard)))
             } else {
                 // Keep an empty filtered watcher connected, matching a real
                 // subscription that remains active while it waits for a
                 // matching event.
-                Ok(receiver.with_subscription(sender))
+                Ok(receiver.with_subscription((sender, guard)))
             }
+        }
+    }
+
+    impl AdditionProvider for TestBackend {
+        fn additions(&self) -> Addition {
+            self.additions
+        }
+
+        fn watch_addition(&self, addition: Addition) -> Result<EventReceiver<Event>> {
+            if !self.additions.contains(addition) {
+                return Err(Error::Unsupported);
+            }
+            self.addition_receiver
+                .lock()
+                .expect("addition receiver mutex poisoned")
+                .take()
+                .ok_or(Error::Unsupported)
         }
     }
 
@@ -1638,6 +1790,9 @@ mod tests {
                 fail_events: false,
                 fail_mutations: false,
                 fail_dns_read: false,
+                additions: Addition::empty(),
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         }
     }
@@ -1713,6 +1868,9 @@ mod tests {
                 fail_events: false,
                 fail_mutations: false,
                 fail_dns_read: true,
+                additions: Addition::empty(),
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         };
 
@@ -1852,6 +2010,9 @@ mod tests {
                 fail_events: false,
                 fail_mutations: false,
                 fail_dns_read: true,
+                additions: Addition::empty(),
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         };
         let desired = DesiredState::empty().with_routes(vec![extra_route()]);
@@ -1943,6 +2104,9 @@ mod tests {
                 fail_events: false,
                 fail_mutations: true,
                 fail_dns_read: false,
+                additions: Addition::empty(),
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         };
         let config =
@@ -2035,6 +2199,9 @@ mod tests {
                 fail_events: false,
                 fail_mutations: true,
                 fail_dns_read: false,
+                additions: Addition::empty(),
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         };
         let plan = MutationPlan::from_operations([Mutation::SetDnsConfig(NewDnsConfig::new())]);
@@ -2331,6 +2498,9 @@ mod tests {
                 fail_events: false,
                 fail_mutations: true,
                 fail_dns_read: false,
+                additions: Addition::empty(),
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         };
         let add_plan =
@@ -4079,6 +4249,118 @@ mod tests {
     }
 
     #[test]
+    fn watch_with_additions_merges_native_and_addition_sourced_events() {
+        use std::time::Duration;
+
+        let neighbor_event = Event::Neighbor {
+            id: NeighborId::new(1),
+            kind: ChangeKind::Added,
+        };
+        let (addition_sender, addition_receiver) = EventReceiver::bounded();
+        assert!(addition_sender.send(neighbor_event, Event::resync_all()));
+        drop(addition_sender);
+
+        let lattice = Lattice {
+            backend: TestBackend {
+                capabilities: Capability::MONITORING,
+                fail_events: false,
+                fail_mutations: false,
+                fail_dns_read: false,
+                additions: Addition::NEIGHBOR_MONITORING_POLLING,
+                addition_receiver: std::sync::Mutex::new(Some(addition_receiver)),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            },
+        };
+
+        let receiver = lattice
+            .watch_with_additions(
+                EventFilter::none().route(RouteId::new(1)),
+                Addition::NEIGHBOR_MONITORING_POLLING,
+            )
+            .expect("watch_with_additions");
+
+        let mut seen_route = false;
+        let mut seen_neighbor = false;
+        for _ in 0..40 {
+            if seen_route && seen_neighbor {
+                break;
+            }
+            match receiver.recv_timeout(Duration::from_millis(100)) {
+                Ok(Some(Event::Route { .. })) => seen_route = true,
+                Ok(Some(event)) if event == neighbor_event => seen_neighbor = true,
+                Ok(Some(_)) | Ok(None) => {}
+                Err(error) => panic!("unexpected merged receiver error: {error:?}"),
+            }
+        }
+        assert!(seen_route, "native-sourced route event did not arrive");
+        assert!(
+            seen_neighbor,
+            "addition-sourced neighbor event did not arrive"
+        );
+    }
+
+    #[test]
+    fn watch_with_additions_silently_skips_an_addition_the_backend_does_not_report() {
+        use std::time::Duration;
+
+        let lattice = lattice(Capability::MONITORING);
+        // `TestBackend::additions` defaults to `Addition::empty()`, so the
+        // requested bit is not reported by this backend.
+        let receiver = lattice
+            .watch_with_additions(EventFilter::none(), Addition::NEIGHBOR_MONITORING_POLLING)
+            .expect("watch_with_additions must not error for an unreported addition");
+        assert!(
+            receiver
+                .recv_timeout(Duration::from_millis(50))
+                .expect("no producer error")
+                .is_none(),
+            "no addition event should have been synthesized"
+        );
+    }
+
+    #[test]
+    fn watch_with_additions_drop_tears_down_native_and_addition_fan_in() {
+        let (_addition_sender, addition_receiver) = EventReceiver::bounded();
+        let addition_drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let addition_receiver =
+            addition_receiver.with_subscription(NativeDropGuard(Arc::clone(&addition_drops)));
+
+        let native_drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let lattice = Lattice {
+            backend: TestBackend {
+                capabilities: Capability::MONITORING,
+                fail_events: false,
+                fail_mutations: false,
+                fail_dns_read: false,
+                additions: Addition::NEIGHBOR_MONITORING_POLLING,
+                addition_receiver: std::sync::Mutex::new(Some(addition_receiver)),
+                native_drops: Arc::clone(&native_drops),
+            },
+        };
+
+        let receiver = lattice
+            .watch_with_additions(EventFilter::none(), Addition::NEIGHBOR_MONITORING_POLLING)
+            .expect("watch_with_additions");
+        assert_eq!(native_drops.load(Ordering::SeqCst), 0);
+        assert_eq!(addition_drops.load(Ordering::SeqCst), 0);
+
+        drop(receiver);
+
+        // `AdditionMergeGuard::drop` joins every fan-in thread before
+        // returning, so both counters are already updated here.
+        assert_eq!(
+            native_drops.load(Ordering::SeqCst),
+            1,
+            "receiver drop did not tear down the native subscription"
+        );
+        assert_eq!(
+            addition_drops.load(Ordering::SeqCst),
+            1,
+            "receiver drop did not tear down the addition fan-in subscription"
+        );
+    }
+
+    #[test]
     fn facade_propagates_backend_watcher_errors() {
         let lattice = Lattice {
             backend: TestBackend {
@@ -4086,6 +4368,9 @@ mod tests {
                 fail_events: true,
                 fail_mutations: false,
                 fail_dns_read: false,
+                additions: Addition::empty(),
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         };
         assert!(lattice.watch().is_err());
@@ -4101,6 +4386,9 @@ mod tests {
                 fail_events: true,
                 fail_mutations: false,
                 fail_dns_read: false,
+                additions: Addition::empty(),
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         };
         assert!(lattice.watch_async(EventFilter::ALL).is_err());

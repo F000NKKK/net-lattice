@@ -911,25 +911,31 @@ doc-комментарий `Capability` в поисках "что backend объ
 - **Модуль `monitoring`** (события изменений, фильтры, monitoring
   provider traits): `EventStream` (за флагом функции `async`),
   `ChangeKind`, `Event`, `EventDomain`, `EventFilter`, `TokioEventProvider`
-  (за флагом функции `async`), `EventProvider`, `EventReceiver`.
+  (за флагом функции `async`), `EventProvider`, `EventReceiver`,
+  `Addition`, `AdditionProvider`.
 - **Модуль `backend`** (единая точка входа для авторов сторонних
   backend'ов; ре-экспортирует элементы, также доступные через
   `model`/`mutation`/`monitoring` выше, плюс `LatticeBackend` и
   `CapabilityProvider`): `LatticeBackend`, `CurrentState`,
-  `AddressMutator`, `AddressProvider`, `CapabilityProvider`, `DnsMutator`,
-  `DnsProvider`, `EventProvider`, `EventReceiver`, `EventSender`,
-  `InterfaceMutator`, `InterfaceProvider`, `NeighborMutator`,
-  `NeighborProvider`, `RouteMutator`, `RouteProvider`, `RouteReplaceOrder`,
-  `SnapshotProvider`, а также за флагом функции `async`:
-  `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
+  `AddressMutator`, `AddressProvider`, `Addition`, `AdditionProvider`,
+  `CapabilityProvider`, `DnsMutator`, `DnsProvider`, `EventProvider`,
+  `EventReceiver`, `EventSender`, `InterfaceMutator`, `InterfaceProvider`,
+  `NeighborMutator`, `NeighborProvider`, `RouteMutator`, `RouteProvider`,
+  `RouteReplaceOrder`, `SnapshotProvider`, а также за флагом функции
+  `async`: `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
 - **`LatticeBackend`** — ограничение времени компиляции, которому должен
   соответствовать сторонний backend; его точный набор supertraits
   (`RouteProvider`/`RouteMutator`/`InterfaceProvider`/`InterfaceMutator`/
   `DnsMutator`/`NeighborProvider`/`NeighborMutator`/`AddressProvider`/
-  `AddressMutator`/`EventProvider`/`CapabilityProvider`, каждый привязан к
-  конкретному типу `net-lattice-model`) сам является частью замороженного
-  контракта: расширение или сужение этого набора — breaking change для
-  каждой сторонней реализации backend'а.
+  `AddressMutator`/`EventProvider`/`AdditionProvider`/`CapabilityProvider`,
+  каждый привязан к конкретному типу `net-lattice-model`) сам является
+  частью замороженного контракта: расширение или сужение этого набора —
+  breaking change для каждой сторонней реализации backend'а.
+  `AdditionProvider` был добавлен как обязательный supertrait на этапе
+  0.21 (ADR-0014); это additive-safe изменение для любого существующего и
+  стороннего backend'а, поскольку оба его метода имеют реализацию по
+  умолчанию — ни одной существующей реализации не потребовалось изменение
+  кода, чтобы продолжить компилироваться.
 - **Публичные методы `Lattice<B>`**: `routes`, `add_route`,
   `remove_route`, `interfaces`, `set_interface_config`, `dns_config`,
   `set_dns_config`, `neighbors`, `add_static_neighbor`,
@@ -937,8 +943,8 @@ doc-комментарий `Capability` в поисках "что backend объ
   `current_state`, `apply`, `diff`, `validate_plan`,
   `snapshot_for_mutation`, `execute_plan`, `execute_apply_plan`,
   `capabilities`, `supports`, `watch`, `watch_async` (за флагом функции
-  `async`), `watch_filtered`, а также конструкторы `connect` для каждой
-  платформы (по одной реализации, помеченной
+  `async`), `watch_filtered`, `watch_with_additions`, а также конструкторы
+  `connect` для каждой платформы (по одной реализации, помеченной
   `#[cfg(target_os = "...")]`, на поддерживаемую ОС, с одной и той же
   публичной сигнатурой `fn connect() -> Result<Self>` на каждой
   платформе).

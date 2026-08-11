@@ -27,8 +27,8 @@ use net_lattice_model::neighbor::{NeighborEntry, NeighborId, NeighborState, Stat
 use net_lattice_model::route::{Route, RouteConfig, RouteId};
 use net_lattice_model::{IpAddress, Network};
 use net_lattice_platform::{
-    AddressMutator, AddressProvider, Capability, CapabilityProvider, DnsMutator, DnsProvider,
-    EventProvider, EventReceiver, EventSender, InterfaceMutator, InterfaceProvider,
+    AdditionProvider, AddressMutator, AddressProvider, Capability, CapabilityProvider, DnsMutator,
+    DnsProvider, EventProvider, EventReceiver, EventSender, InterfaceMutator, InterfaceProvider,
     NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
 };
 #[cfg(feature = "async")]
@@ -1740,6 +1740,17 @@ impl EventProvider for WindowsBackend {
         }))
     }
 }
+
+/// Placeholder default: Windows currently reports no
+/// [`net_lattice_platform::Addition`]s and rejects every
+/// [`AdditionProvider::watch_addition`] request via the
+/// trait's default methods. Windows neighbor-table-change monitoring via
+/// polling (`Addition::NEIGHBOR_MONITORING_POLLING`) is a separate,
+/// Windows-specific Task (tracked outside this facade-only change) that
+/// overrides both methods; this impl exists only to satisfy
+/// `LatticeBackend`'s `AdditionProvider` supertrait bound at zero cost until
+/// that Task lands.
+impl AdditionProvider for WindowsBackend {}
 
 /// Native async monitoring: IP Helper invokes the callbacks directly and the
 /// callbacks enqueue into a bounded Tokio transport without blocking a system

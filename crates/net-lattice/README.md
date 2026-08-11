@@ -12,7 +12,10 @@ Rust API. This is the application-facing Net Lattice crate.
   the same per-domain reads, with zero extra backend code required;
 - imperative route, address, resolver, and static ARP/NDP neighbor mutation;
 - partial interface MTU and administrative-state configuration;
-- filtered native change monitoring;
+- filtered native change monitoring, plus an opt-in `watch_with_additions`
+  entry point that merges native events with any backend-reported
+  `Addition`s — explicitly opt-in, lesser-quality workarounds (for example,
+  polling) for a gap a platform has no native mechanism for;
 - ordered `MutationPlan` execution with runtime validation, cancellation,
   snapshots, explicit compensation, and per-operation reports;
 - declarative `ApplyPlan` execution (compiled from a `DesiredState`/`Diff`

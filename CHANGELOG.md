@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `net-lattice-platform::{Addition, AdditionProvider}`: a new, disjoint
+  "addition tier" of explicitly opt-in, non-native capabilities (for
+  example, polling), reported through a separate `#[non_exhaustive]`
+  bitflags-style `Addition` type never merged into `Capability`'s
+  cross-backend-uniform meaning. `AdditionProvider: EventProvider` has two
+  default-provided methods (`additions` defaults to `Addition::empty()`,
+  `watch_addition` defaults to `Err(Error::Unsupported)`), so implementing
+  it costs nothing for a backend with no addition to offer.
+- `net-lattice::Lattice::<B>::watch_with_additions(&self, filter:
+  EventFilter, additions: Addition) -> Result<EventReceiver<Event>>`: like
+  `watch_filtered`, but also activates the requested `Addition`s and fans
+  their synthesized events into the same merged receiver as the native,
+  filter-selected events. An `additions` bit not currently reported by the
+  connected backend's `AdditionProvider::additions` is silently not
+  activated (no error), matching `Capability`'s own "query, don't assume"
+  caller contract. Dropping the returned receiver tears down both the
+  native subscription and every addition fan-in thread this call started.
+  `LatticeBackend` gained `AdditionProvider` as a required supertrait;
+  additive-safe for every existing and third-party backend since both of
+  `AdditionProvider`'s methods are default-provided.
+
 ### Changed
 
 - `net-lattice-core::Error` is now `#[non_exhaustive]`, matching the

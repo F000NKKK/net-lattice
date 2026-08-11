@@ -574,9 +574,9 @@ mod tests {
     use net_lattice_model::neighbor::{NeighborEntry, StaticNeighbor};
     use net_lattice_model::route::RouteId;
     use net_lattice_platform::{
-        AddressMutator, AddressProvider, CapabilityProvider, DnsMutator, DnsProvider,
-        EventProvider, EventReceiver, InterfaceMutator, InterfaceProvider, NeighborMutator,
-        NeighborProvider, RouteMutator, RouteProvider,
+        AdditionProvider, AddressMutator, AddressProvider, CapabilityProvider, DnsMutator,
+        DnsProvider, EventProvider, EventReceiver, InterfaceMutator, InterfaceProvider,
+        NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
     };
 
     use super::*;
@@ -835,6 +835,8 @@ mod tests {
             Err(Error::Unsupported)
         }
     }
+
+    impl AdditionProvider for FakeRouteBackend {}
 
     fn lattice(backend: FakeRouteBackend) -> Lattice<FakeRouteBackend> {
         Lattice { backend }
