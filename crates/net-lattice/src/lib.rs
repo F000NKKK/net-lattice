@@ -446,16 +446,26 @@ const FAN_IN_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// Spawns a thread that forwards every event from `source` into `sender`
 /// until `source` disconnects, `sender`'s last other clone is dropped, or
 /// `stop` is set. Used by [`Lattice::watch_with_additions`] to fan native and
-/// addition-sourced events into one merged [`EventReceiver`].
+/// addition-sourced events into one merged [`EventReceiver`]. When `filter`
+/// is `Some`, an event that does not match it is silently dropped instead of
+/// forwarded — used so addition-sourced events (which their native source
+/// applies no object-id narrowing to) still obey the caller's full requested
+/// [`EventFilter`].
 fn spawn_event_fan_in(
     source: EventReceiver<Event>,
     sender: EventSender<Event>,
     stop: Arc<AtomicBool>,
+    filter: Option<EventFilter>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         while !stop.load(Ordering::SeqCst) {
             match source.recv_timeout(FAN_IN_POLL_INTERVAL) {
                 Ok(Some(event)) => {
+                    if let Some(filter) = &filter
+                        && !filter.matches(event)
+                    {
+                        continue;
+                    }
                     if !sender.send(event, Event::resync_all()) {
                         break;
                     }
@@ -1275,10 +1285,19 @@ impl<B: LatticeBackend> Lattice<B> {
         filter: EventFilter,
         additions: Addition,
     ) -> Result<EventReceiver<Event>> {
-        self.ensure_monitoring_for(&filter)?;
-        let native = self.backend.watch_filtered(filter)?;
-        let requested = self.backend.additions() & additions;
-        if requested.is_empty() {
+        let reported = self.backend.additions() & additions;
+        let mut covered_domains = Vec::new();
+        let mut native_filter = filter.clone();
+        for &(bit, domain) in ADDITION_DOMAINS {
+            if reported.contains(bit) && filter.selects_domain(domain) {
+                covered_domains.push(domain);
+                native_filter = native_filter.without_domain(domain);
+            }
+        }
+        self.ensure_monitoring_for_with_additions(&filter, &covered_domains)?;
+
+        let native = self.backend.watch_filtered(native_filter)?;
+        if reported.is_empty() {
             return Ok(native);
         }
 
@@ -1289,13 +1308,15 @@ impl<B: LatticeBackend> Lattice<B> {
             native,
             sender.clone(),
             Arc::clone(&stop),
+            None,
         ));
-        for bit in requested.iter() {
+        for bit in reported.iter() {
             if let Ok(addition_receiver) = self.backend.watch_addition(bit) {
                 handles.push(spawn_event_fan_in(
                     addition_receiver,
                     sender.clone(),
                     Arc::clone(&stop),
+                    Some(filter.clone()),
                 ));
             }
         }
@@ -1320,7 +1341,42 @@ impl<B: LatticeBackend> Lattice<B> {
             Err(Error::Unsupported)
         }
     }
+
+    /// Like [`Self::ensure_monitoring_for`], but a domain in
+    /// `covered_domains` also satisfies the gate even without its native
+    /// [`Capability`] — used only by [`Self::watch_with_additions`], whose
+    /// caller has additionally opted into an [`Addition`] covering that
+    /// domain.
+    fn ensure_monitoring_for_with_additions(
+        &self,
+        filter: &EventFilter,
+        covered_domains: &[EventDomain],
+    ) -> Result<()> {
+        let capabilities = self.capabilities();
+        let supported = [
+            (EventDomain::Route, Capability::ROUTE_MONITORING),
+            (EventDomain::Interface, Capability::INTERFACE_MONITORING),
+            (EventDomain::Neighbor, Capability::NEIGHBOR_MONITORING),
+            (EventDomain::Address, Capability::ADDRESS_MONITORING),
+        ];
+        if supported.into_iter().all(|(domain, capability)| {
+            !filter.selects_domain(domain)
+                || capabilities.contains(capability)
+                || covered_domains.contains(&domain)
+        }) {
+            Ok(())
+        } else {
+            Err(Error::Unsupported)
+        }
+    }
 }
+
+/// Which [`EventDomain`] each [`Addition`] bit covers, consulted by
+/// [`Lattice::watch_with_additions`]'s domain gate and by its native-filter
+/// stripping. Extend this table — not a new abstraction — when a future
+/// [`Addition`] bit is added.
+const ADDITION_DOMAINS: &[(Addition, EventDomain)] =
+    &[(Addition::NEIGHBOR_MONITORING_POLLING, EventDomain::Neighbor)];
 
 #[cfg(target_os = "linux")]
 impl Lattice<net_lattice_backend_linux::LinuxBackend> {
@@ -1406,6 +1462,11 @@ mod tests {
         /// subscription guard this backend attaches to every watcher has been
         /// dropped, so a test can observe native-subscription teardown.
         native_drops: Arc<std::sync::atomic::AtomicUsize>,
+        /// Records the [`EventFilter`] most recently passed to
+        /// [`EventProvider::watch_filtered`], so a test can confirm
+        /// [`Lattice::watch_with_additions`] strips an addition-covered
+        /// domain before forwarding the filter to the native call.
+        captured_watch_filter: std::sync::Mutex<Option<EventFilter>>,
     }
 
     /// Dropped alongside a [`TestBackend`] watcher's native subscription;
@@ -1719,6 +1780,10 @@ mod tests {
         }
 
         fn watch_filtered(&self, filter: Self::EventFilter) -> Result<EventReceiver<Self::Event>> {
+            *self
+                .captured_watch_filter
+                .lock()
+                .expect("captured_watch_filter mutex poisoned") = Some(filter.clone());
             if self.fail_events {
                 return Err(Error::InvalidState);
             }
@@ -1793,6 +1858,7 @@ mod tests {
                 additions: Addition::empty(),
                 addition_receiver: std::sync::Mutex::new(None),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         }
     }
@@ -1871,6 +1937,7 @@ mod tests {
                 additions: Addition::empty(),
                 addition_receiver: std::sync::Mutex::new(None),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
 
@@ -2013,6 +2080,7 @@ mod tests {
                 additions: Addition::empty(),
                 addition_receiver: std::sync::Mutex::new(None),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
         let desired = DesiredState::empty().with_routes(vec![extra_route()]);
@@ -2107,6 +2175,7 @@ mod tests {
                 additions: Addition::empty(),
                 addition_receiver: std::sync::Mutex::new(None),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
         let config =
@@ -2202,6 +2271,7 @@ mod tests {
                 additions: Addition::empty(),
                 addition_receiver: std::sync::Mutex::new(None),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
         let plan = MutationPlan::from_operations([Mutation::SetDnsConfig(NewDnsConfig::new())]);
@@ -2501,6 +2571,7 @@ mod tests {
                 additions: Addition::empty(),
                 addition_receiver: std::sync::Mutex::new(None),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
         let add_plan =
@@ -4269,12 +4340,19 @@ mod tests {
                 additions: Addition::NEIGHBOR_MONITORING_POLLING,
                 addition_receiver: std::sync::Mutex::new(Some(addition_receiver)),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
 
+        // Selects both the Route domain (native-sourced) and the Neighbor
+        // domain (addition-sourced): since NL-152, an addition-sourced event
+        // is only forwarded when it matches the caller's full requested
+        // filter, so the filter must select Neighbor for the addition-source
+        // assertion below to hold (narrowing-specific behavior is covered
+        // separately by `watch_with_additions_narrows_addition_sourced_events_by_object_id`).
         let receiver = lattice
             .watch_with_additions(
-                EventFilter::none().route(RouteId::new(1)),
+                EventFilter::none().route(RouteId::new(1)).neighbors(),
                 Addition::NEIGHBOR_MONITORING_POLLING,
             )
             .expect("watch_with_additions");
@@ -4335,6 +4413,7 @@ mod tests {
                 additions: Addition::NEIGHBOR_MONITORING_POLLING,
                 addition_receiver: std::sync::Mutex::new(Some(addition_receiver)),
                 native_drops: Arc::clone(&native_drops),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
 
@@ -4361,6 +4440,147 @@ mod tests {
     }
 
     #[test]
+    fn watch_with_additions_succeeds_when_domain_covered_only_by_addition() {
+        let lattice = Lattice {
+            backend: TestBackend {
+                capabilities: Capability::ROUTE_MONITORING
+                    | Capability::INTERFACE_MONITORING
+                    | Capability::ADDRESS_MONITORING,
+                fail_events: false,
+                fail_mutations: false,
+                fail_dns_read: false,
+                additions: Addition::NEIGHBOR_MONITORING_POLLING,
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
+            },
+        };
+
+        assert!(
+            lattice
+                .watch_with_additions(EventFilter::ALL, Addition::all())
+                .is_ok(),
+            "a domain covered only by a requested and reported Addition must not be rejected"
+        );
+    }
+
+    #[test]
+    fn watch_with_additions_strips_addition_covered_domain_before_native_call() {
+        let lattice = Lattice {
+            backend: TestBackend {
+                capabilities: Capability::ROUTE_MONITORING
+                    | Capability::INTERFACE_MONITORING
+                    | Capability::ADDRESS_MONITORING,
+                fail_events: false,
+                fail_mutations: false,
+                fail_dns_read: false,
+                additions: Addition::NEIGHBOR_MONITORING_POLLING,
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
+            },
+        };
+
+        lattice
+            .watch_with_additions(EventFilter::ALL, Addition::NEIGHBOR_MONITORING_POLLING)
+            .expect("watch_with_additions");
+
+        let captured = lattice
+            .backend
+            .captured_watch_filter
+            .lock()
+            .expect("captured_watch_filter mutex poisoned")
+            .clone()
+            .expect("watch_filtered must have been called");
+        assert_eq!(
+            captured,
+            EventFilter::ALL.without_domain(EventDomain::Neighbor)
+        );
+        assert!(!captured.selects_domain(EventDomain::Neighbor));
+        assert!(captured.selects_domain(EventDomain::Route));
+        assert!(captured.selects_domain(EventDomain::Interface));
+        assert!(captured.selects_domain(EventDomain::Address));
+    }
+
+    #[test]
+    fn watch_and_watch_filtered_unaffected_by_addition_gate_change() {
+        let lattice = Lattice {
+            backend: TestBackend {
+                capabilities: Capability::empty(),
+                fail_events: false,
+                fail_mutations: false,
+                fail_dns_read: false,
+                additions: Addition::NEIGHBOR_MONITORING_POLLING,
+                addition_receiver: std::sync::Mutex::new(None),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
+            },
+        };
+
+        assert!(matches!(lattice.watch(), Err(Error::Unsupported)));
+        assert!(matches!(
+            lattice.watch_filtered(EventFilter::ALL),
+            Err(Error::Unsupported)
+        ));
+    }
+
+    #[test]
+    fn watch_with_additions_narrows_addition_sourced_events_by_object_id() {
+        use std::time::Duration;
+
+        let id_a = NeighborId::new(1);
+        let id_b = NeighborId::new(2);
+        let event_a = Event::Neighbor {
+            id: id_a,
+            kind: ChangeKind::Added,
+        };
+        let event_b = Event::Neighbor {
+            id: id_b,
+            kind: ChangeKind::Added,
+        };
+        let (addition_sender, addition_receiver) = EventReceiver::bounded();
+        assert!(addition_sender.send(event_a, Event::resync_all()));
+        assert!(addition_sender.send(event_b, Event::resync_all()));
+        drop(addition_sender);
+
+        let lattice = Lattice {
+            backend: TestBackend {
+                capabilities: Capability::empty(),
+                fail_events: false,
+                fail_mutations: false,
+                fail_dns_read: false,
+                additions: Addition::NEIGHBOR_MONITORING_POLLING,
+                addition_receiver: std::sync::Mutex::new(Some(addition_receiver)),
+                native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
+            },
+        };
+
+        let receiver = lattice
+            .watch_with_additions(
+                EventFilter::none().neighbor(id_a),
+                Addition::NEIGHBOR_MONITORING_POLLING,
+            )
+            .expect("watch_with_additions");
+
+        let mut seen_a = false;
+        let mut seen_b = false;
+        for _ in 0..10 {
+            match receiver.recv_timeout(Duration::from_millis(50)) {
+                Ok(Some(event)) if event == event_a => seen_a = true,
+                Ok(Some(event)) if event == event_b => seen_b = true,
+                Ok(Some(_)) | Ok(None) => {}
+                Err(error) => panic!("unexpected merged receiver error: {error:?}"),
+            }
+        }
+        assert!(seen_a, "narrower-matching neighbor event did not arrive");
+        assert!(
+            !seen_b,
+            "neighbor event for an unrequested object id must not arrive"
+        );
+    }
+
+    #[test]
     fn facade_propagates_backend_watcher_errors() {
         let lattice = Lattice {
             backend: TestBackend {
@@ -4371,6 +4591,7 @@ mod tests {
                 additions: Addition::empty(),
                 addition_receiver: std::sync::Mutex::new(None),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
         assert!(lattice.watch().is_err());
@@ -4389,6 +4610,7 @@ mod tests {
                 additions: Addition::empty(),
                 addition_receiver: std::sync::Mutex::new(None),
                 native_drops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                captured_watch_filter: std::sync::Mutex::new(None),
             },
         };
         assert!(lattice.watch_async(EventFilter::ALL).is_err());

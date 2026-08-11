@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `net-lattice::Lattice::<B>::watch_with_additions`: now succeeds when a
+  selected event domain is covered by a requested and backend-reported
+  `Addition` even without the corresponding native `Capability` — previously
+  it always rejected such a call with `Error::Unsupported` before ever
+  consulting the requested additions, making the neighbor-polling addition
+  unreachable through its own intended entry point. The domain is now also
+  correctly withheld from the underlying native watch registration so a
+  backend that natively rejects that domain doesn't reject the whole call.
+  Addition-sourced events are now also filtered against the caller's full
+  requested `EventFilter`, including object-id narrowers, instead of always
+  delivering every addition-sourced event regardless of what was requested.
+  `watch`/`watch_filtered`/`watch_async` are unaffected by this fix.
+- `net-lattice-model::event::EventFilter`: added `without_domain(EventDomain)
+  -> Self`, returning a copy of the filter with one domain (and its object-id
+  narrowers) cleared; `EventDomain::All` clears every domain.
+
 ## [0.21.0] - 2026-08-11
 
 ### Added

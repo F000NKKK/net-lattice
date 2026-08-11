@@ -131,6 +131,38 @@ impl EventFilter {
         }
     }
 
+    /// Returns a copy of this filter with `domain` cleared, discarding any
+    /// object-id narrowers scoped to that domain. Other domains are
+    /// unaffected. Used to strip a domain from an already-built filter before
+    /// forwarding it to a native watch call when that domain is instead being
+    /// covered through an addition-tier delivery path (see
+    /// `Lattice::watch_with_additions`). [`EventDomain::All`] clears every
+    /// domain.
+    pub fn without_domain(mut self, domain: EventDomain) -> Self {
+        match domain {
+            EventDomain::Route => {
+                self.routes = false;
+                self.route_ids = None;
+            }
+            EventDomain::Interface => {
+                self.interfaces = false;
+                self.interface_ids = None;
+            }
+            EventDomain::Neighbor => {
+                self.neighbors = false;
+                self.neighbor_ids = None;
+            }
+            EventDomain::Address => {
+                self.addresses = false;
+                self.address_ids = None;
+            }
+            EventDomain::All => {
+                self = Self::none();
+            }
+        }
+        self
+    }
+
     /// Whether this filter delivers `event`. Object selectors are applied
     /// before a backend enqueues an ordinary event. A resynchronization event
     /// has no object ID, so it is selected by its affected domain.
@@ -397,5 +429,33 @@ mod tests {
         assert!(!route.selects_domain(EventDomain::Neighbor));
         assert!(!route.selects_domain(EventDomain::All));
         assert!(EventFilter::ALL.selects_domain(EventDomain::All));
+    }
+
+    #[test]
+    fn without_domain_clears_only_the_targeted_domain_and_its_narrowers() {
+        let filter = EventFilter::ALL
+            .neighbor(NeighborId::new(1))
+            .route(RouteId::new(2));
+        let stripped = filter.without_domain(EventDomain::Neighbor);
+        assert!(!stripped.selects_domain(EventDomain::Neighbor));
+        assert!(!stripped.matches(Event::Neighbor {
+            id: NeighborId::new(1),
+            kind: ChangeKind::Added,
+        }));
+        assert!(stripped.selects_domain(EventDomain::Route));
+        assert!(stripped.selects_domain(EventDomain::Interface));
+        assert!(stripped.selects_domain(EventDomain::Address));
+        assert!(stripped.matches(Event::Route {
+            id: RouteId::new(2),
+            kind: ChangeKind::Added,
+        }));
+    }
+
+    #[test]
+    fn without_domain_all_clears_everything() {
+        assert_eq!(
+            EventFilter::ALL.without_domain(EventDomain::All),
+            EventFilter::none()
+        );
     }
 }
