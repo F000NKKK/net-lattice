@@ -27,7 +27,7 @@ net-lattice-platform = { path = "crates/net-lattice-platform", version = "0.17.0
 
 net-lattice-backend-linux = { path = "crates/net-lattice-backend-linux", version = "0.19.1" }
 net-lattice-backend-windows = { path = "crates/net-lattice-backend-windows", version = "0.19.1" }
-net-lattice-backend-darwin = { path = "crates/net-lattice-backend-darwin", version = "0.19.0" }
+net-lattice-backend-darwin = { path = "crates/net-lattice-backend-darwin", version = "0.19.1" }
 net-lattice-async = { path = "crates/net-lattice-async", version = "0.9.0" }
 net-lattice = { path = "crates/net-lattice", version = "0.21.1" }
 
