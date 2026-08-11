@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LatticeBackend` gained `AdditionProvider` as a required supertrait;
   additive-safe for every existing and third-party backend since both of
   `AdditionProvider`'s methods are default-provided.
+- `net-lattice-backend-windows`: a concrete `AdditionProvider` implementation
+  reporting `Addition::NEIGHBOR_MONITORING_POLLING` — an opt-in, polling-based
+  substitute for the native neighbor-change monitoring this backend still
+  lacks. Diffs successive neighbor-table snapshots into synthesized
+  `Added`/`Removed`/`Changed` events on the receiver returned by
+  `watch_with_additions`, at a weaker latency/ordering/coalescing/
+  resource-cost tier than native event delivery (documented on
+  `Addition::NEIGHBOR_MONITORING_POLLING` itself).
 
 ### Changed
 
