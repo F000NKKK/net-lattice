@@ -10,9 +10,12 @@
 //! neighbors, and interface addresses; mutator traits for each of those
 //! domains (`InterfaceMutator`, `NeighborMutator`, and their siblings) gated
 //! by their respective `Capability` flags; `EventProvider` for native
-//! change-notification delivery; and `SnapshotProvider`, the whole-system
-//! state assembly contract.
+//! change-notification delivery; `SnapshotProvider`, the whole-system state
+//! assembly contract; and `AdditionProvider`, a disjoint, explicitly opt-in
+//! tier of non-native capabilities (see [`Addition`]) that never dilutes
+//! `Capability`'s uniform, native-only meaning.
 
+mod addition;
 mod address_mutator;
 mod address_provider;
 mod capability;
@@ -28,6 +31,7 @@ mod snapshot_provider;
 #[cfg(feature = "async")]
 mod tokio_event_provider;
 
+pub use addition::{Addition, AdditionProvider};
 pub use address_mutator::AddressMutator;
 pub use address_provider::AddressProvider;
 pub use capability::{Capability, CapabilityProvider};

@@ -20,7 +20,15 @@ public facade and native platform backends.
   covering any backend that already implements the read providers above;
 - runtime `Capability` reporting;
 - synchronous event sender/receiver contracts;
-- optional native Tokio watcher contracts behind the `async` feature.
+- optional native Tokio watcher contracts behind the `async` feature;
+- `Addition`/`AdditionProvider`, a disjoint, explicitly opt-in tier of
+  non-native capabilities implemented through a lesser-quality mechanism
+  (for example, polling instead of a native push subscription).
+  `AdditionProvider` extends `EventProvider`; both of its methods,
+  `additions` and `watch_addition`, are default-provided (empty/
+  `Error::Unsupported`) so a backend with nothing to add costs nothing.
+  `Addition` never expands what `Capability` means — it is a separate,
+  `#[non_exhaustive]` flag set a caller must request explicitly.
 
 This crate intentionally depends on `net-lattice-core`, not
 `net-lattice-model`. The facade binds provider associated types to the

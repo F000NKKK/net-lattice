@@ -305,6 +305,20 @@ force every backend to stub out methods for features it doesn't have:
   a backend-derived ID and any attributes reported by the OS.
 - `EventProvider` — subscribe to change notifications, generic over an
   associated `Event` type for the same reason as the others.
+- `AdditionProvider: EventProvider` — a disjoint, explicitly opt-in tier of
+  non-native capabilities, reported via the separate `Addition` flag type
+  (a `#[non_exhaustive]` bitflags-style set, structurally parallel to
+  `Capability` but never merged into it). Every `Capability` flag describes
+  a first-class native mechanism uniformly across backends; an `Addition`
+  describes a documented, lesser-quality workaround (for example, polling
+  instead of a native push subscription) that a caller must explicitly
+  request and that is never advertised or activated by default. Both of
+  `AdditionProvider`'s methods, `additions` (default: `Addition::empty()`)
+  and `watch_addition` (default: `Err(Error::Unsupported)`), are
+  default-provided, so a backend with nothing to add implements this trait
+  at zero cost. A backend that lacks a native mechanism for something still
+  simply omits the corresponding `Capability` bit — `Addition` never
+  expands what `Capability` means.
 
 - `Capability` — distinct from provider traits, and deliberately not the
   same axis. Provider traits (`RouteProvider`, ...) describe API surfaces
