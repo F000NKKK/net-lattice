@@ -20,8 +20,29 @@ bitflags::bitflags! {
     #[non_exhaustive]
     pub struct Addition: u64 {
         /// Windows-only: synthesizes neighbor-table change events via
-        /// periodic polling instead of a native push subscription. See this
-        /// type's module doc for the quality/guarantee tier.
+        /// periodic polling of `NeighborProvider::neighbors` instead of a
+        /// native push subscription (Windows has no native
+        /// `Capability::NEIGHBOR_MONITORING` mechanism). See this type's
+        /// module doc for the general opt-in contract, and the quality/
+        /// guarantee tier below — explicitly weaker than native
+        /// `Capability::NEIGHBOR_MONITORING`, per ADR-0014 Decision 5:
+        ///
+        /// - **Latency**: bounded by the poll interval (2 seconds by
+        ///   default on the Windows backend), not sub-second/push-based — a
+        ///   change can take up to one interval to surface, unlike native
+        ///   monitoring's push-on-change.
+        /// - **Ordering**: no ordering guarantee relative to the
+        ///   native-sourced portion of the same merged stream (consistent
+        ///   with [`crate::EventReceiver`]'s existing "no cross-domain
+        ///   ordering" contract — this extends the same disclaimer to cover
+        ///   addition-vs-native interleaving too).
+        /// - **Coalescing**: two neighbor changes within one poll interval
+        ///   that cancel out (added then removed before the next poll) are
+        ///   invisible — a real behavior difference from native monitoring.
+        /// - **Resource cost**: one background polling thread per active
+        ///   `watch_addition` call requesting this addition, torn down when
+        ///   the returned [`crate::EventReceiver`] is dropped — bounded and
+        ///   caller-controlled, never started unless requested.
         const NEIGHBOR_MONITORING_POLLING = 1 << 0;
     }
 }

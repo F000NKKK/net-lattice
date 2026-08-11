@@ -12,7 +12,9 @@
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::net::IpAddr;
+use std::sync::mpsc;
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
+use std::thread;
 use std::time::Duration;
 
 use net_lattice_core::{Error, Id, PlatformErrorCode, Result};
@@ -27,9 +29,9 @@ use net_lattice_model::neighbor::{NeighborEntry, NeighborId, NeighborState, Stat
 use net_lattice_model::route::{Route, RouteConfig, RouteId};
 use net_lattice_model::{IpAddress, Network};
 use net_lattice_platform::{
-    AdditionProvider, AddressMutator, AddressProvider, Capability, CapabilityProvider, DnsMutator,
-    DnsProvider, EventProvider, EventReceiver, EventSender, InterfaceMutator, InterfaceProvider,
-    NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
+    Addition, AdditionProvider, AddressMutator, AddressProvider, Capability, CapabilityProvider,
+    DnsMutator, DnsProvider, EventProvider, EventReceiver, EventSender, InterfaceMutator,
+    InterfaceProvider, NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
 };
 #[cfg(feature = "async")]
 use net_lattice_platform::{TokioEventProvider, TokioEventReceiver, TokioEventSender};
@@ -1026,27 +1028,34 @@ fn row_to_neighbor(row: &MIB_IPNET_ROW2) -> Option<NeighborEntry> {
     Some(entry)
 }
 
+/// Reads the current kernel neighbor (ARP/NDP) table via `GetIpNetTable2`.
+///
+/// A plain synchronous Win32 call with no dependency on `WindowsBackend`'s
+/// Tokio runtime, so it can be called both from
+/// [`NeighborProvider::neighbors`] (via `self.runtime.block_on`, preserving
+/// prior behavior) and directly from the background polling thread backing
+/// [`Addition::NEIGHBOR_MONITORING_POLLING`], which has no access to `self`.
+fn read_neighbor_table() -> Result<Vec<NeighborEntry>> {
+    let mut table: *mut MIB_IPNET_TABLE2 = std::ptr::null_mut();
+    let status = unsafe { GetIpNetTable2(AF_UNSPEC, &mut table) };
+    if status.0 != 0 {
+        return Err(Error::Platform(PlatformErrorCode::Windows(status.0)));
+    }
+
+    let neighbors = unsafe {
+        let rows =
+            std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize);
+        rows.iter().filter_map(row_to_neighbor).collect()
+    };
+    unsafe { FreeMibTable(table.cast()) };
+    Ok(neighbors)
+}
+
 impl NeighborProvider for WindowsBackend {
     type NeighborEntry = NeighborEntry;
 
     fn neighbors(&self) -> Result<Vec<Self::NeighborEntry>> {
-        self.runtime.block_on(async {
-            let mut table: *mut MIB_IPNET_TABLE2 = std::ptr::null_mut();
-            let status = unsafe { GetIpNetTable2(AF_UNSPEC, &mut table) };
-            if status.0 != 0 {
-                return Err(Error::Platform(PlatformErrorCode::Windows(status.0)));
-            }
-
-            let neighbors = unsafe {
-                let rows = std::slice::from_raw_parts(
-                    (*table).Table.as_ptr(),
-                    (*table).NumEntries as usize,
-                );
-                rows.iter().filter_map(row_to_neighbor).collect()
-            };
-            unsafe { FreeMibTable(table.cast()) };
-            Ok(neighbors)
-        })
+        self.runtime.block_on(async { read_neighbor_table() })
     }
 }
 
@@ -1741,16 +1750,141 @@ impl EventProvider for WindowsBackend {
     }
 }
 
-/// Placeholder default: Windows currently reports no
-/// [`net_lattice_platform::Addition`]s and rejects every
-/// [`AdditionProvider::watch_addition`] request via the
-/// trait's default methods. Windows neighbor-table-change monitoring via
-/// polling (`Addition::NEIGHBOR_MONITORING_POLLING`) is a separate,
-/// Windows-specific Task (tracked outside this facade-only change) that
-/// overrides both methods; this impl exists only to satisfy
-/// `LatticeBackend`'s `AdditionProvider` supertrait bound at zero cost until
-/// that Task lands.
-impl AdditionProvider for WindowsBackend {}
+/// Default poll interval for [`Addition::NEIGHBOR_MONITORING_POLLING`], per
+/// ADR-0014 (NL-A-16) Decision 5. A tunable override is left to a future
+/// Task if a caller ever needs a different cadence; this Task fixes only the
+/// documented default.
+const NEIGHBOR_POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Diffs two successive neighbor-table snapshots into synthesized
+/// [`Event::Neighbor`] change events, per ADR-0014 (NL-A-16) Decision 5.
+///
+/// `previous` is `None` on the very first poll: the first snapshot is
+/// treated as a baseline and produces no events (there is nothing to diff
+/// against yet). A [`NeighborId`] present in `current` but not `previous` is
+/// [`ChangeKind::Added`]; present in `previous` but not `current` is
+/// [`ChangeKind::Removed`]; present in both with a different `mac` or
+/// `state` is [`ChangeKind::Changed`] (the conservative fallback — polling
+/// cannot distinguish a genuine in-place change from a removal followed by
+/// an identical re-addition within the same interval).
+fn diff_neighbor_snapshots(
+    previous: Option<&HashMap<NeighborId, NeighborEntry>>,
+    current: &HashMap<NeighborId, NeighborEntry>,
+) -> Vec<Event> {
+    let Some(previous) = previous else {
+        return Vec::new();
+    };
+    let mut events = Vec::new();
+    for (id, entry) in current {
+        match previous.get(id) {
+            None => events.push(Event::Neighbor {
+                id: *id,
+                kind: ChangeKind::Added,
+            }),
+            Some(previous_entry) => {
+                if previous_entry.mac != entry.mac || previous_entry.state != entry.state {
+                    events.push(Event::Neighbor {
+                        id: *id,
+                        kind: ChangeKind::Changed,
+                    });
+                }
+            }
+        }
+    }
+    for id in previous.keys() {
+        if !current.contains_key(id) {
+            events.push(Event::Neighbor {
+                id: *id,
+                kind: ChangeKind::Removed,
+            });
+        }
+    }
+    events
+}
+
+/// Owns the background polling thread's stop channel and join handle for
+/// [`Addition::NEIGHBOR_MONITORING_POLLING`].
+///
+/// Dropping this guard drops the stop [`mpsc::Sender`] first, which
+/// disconnects the thread's paired `Receiver`: the thread's blocking
+/// `recv_timeout` call returns immediately with
+/// `RecvTimeoutError::Disconnected` rather than waiting out the remainder of
+/// [`NEIGHBOR_POLL_INTERVAL`], so teardown latency on receiver drop is
+/// bounded by one poll iteration's own work, not by the poll interval
+/// itself. The guard then joins the thread so the polling loop is
+/// guaranteed stopped before the guard finishes dropping (mirrors
+/// `WindowsWatch::drop`'s synchronous-cancellation contract for native
+/// subscriptions above).
+struct WindowsAdditionWatch {
+    stop: Option<mpsc::Sender<()>>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for WindowsAdditionWatch {
+    fn drop(&mut self) {
+        drop(self.stop.take());
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// Windows has no native neighbor-table-change notification mechanism (see
+/// `windows_backend_does_not_advertise_neighbor_monitoring` and
+/// `CapabilityProvider for WindowsBackend` above), but can synthesize change
+/// events by periodically polling [`NeighborProvider::neighbors`] — an
+/// already-implemented, unprivileged read. This is the addition-tier
+/// implementation for `Addition::NEIGHBOR_MONITORING_POLLING`, per ADR-0014
+/// (NL-A-16) Decision 5.
+impl AdditionProvider for WindowsBackend {
+    fn additions(&self) -> Addition {
+        Addition::NEIGHBOR_MONITORING_POLLING
+    }
+
+    fn watch_addition(&self, addition: Addition) -> Result<EventReceiver<Self::Event>> {
+        if addition != Addition::NEIGHBOR_MONITORING_POLLING {
+            return Err(Error::Unsupported);
+        }
+
+        let (sender, receiver) = EventReceiver::bounded();
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+
+        let handle = thread::spawn(move || {
+            let mut previous: Option<HashMap<NeighborId, NeighborEntry>> = None;
+            loop {
+                match read_neighbor_table() {
+                    Ok(snapshot) => {
+                        let current: HashMap<NeighborId, NeighborEntry> = snapshot
+                            .into_iter()
+                            .map(|entry| (entry.id, entry))
+                            .collect();
+                        for event in diff_neighbor_snapshots(previous.as_ref(), &current) {
+                            if !sender.send(event, Event::resync_all()) {
+                                return;
+                            }
+                        }
+                        previous = Some(current);
+                    }
+                    Err(error) => {
+                        if !sender.send_error(error) {
+                            return;
+                        }
+                    }
+                }
+
+                match stop_rx.recv_timeout(NEIGHBOR_POLL_INTERVAL) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+            }
+        });
+
+        Ok(receiver.with_subscription(WindowsAdditionWatch {
+            stop: Some(stop_tx),
+            handle: Some(handle),
+        }))
+    }
+}
 
 /// Native async monitoring: IP Helper invokes the callbacks directly and the
 /// callbacks enqueue into a bounded Tokio transport without blocking a system
@@ -3376,5 +3510,164 @@ mod tests {
             selected_async_observed,
             "async object route filter did not report removal"
         );
+    }
+
+    fn neighbor(id: u64, mac: [u8; 6], state: NeighborState) -> NeighborEntry {
+        NeighborEntry::new(
+            NeighborId::new(id),
+            1,
+            IpAddress::from(Ipv4Address::new(10, 0, 0, id as u8)),
+        )
+        .with_mac(MacAddress::new(mac))
+        .with_state(state)
+    }
+
+    fn snapshot(entries: Vec<NeighborEntry>) -> HashMap<NeighborId, NeighborEntry> {
+        entries.into_iter().map(|entry| (entry.id, entry)).collect()
+    }
+
+    /// The very first poll has nothing to diff against: it must establish a
+    /// baseline and synthesize no events, per ADR-0014 (NL-A-16) Decision 5.
+    #[test]
+    fn neighbor_diff_first_poll_produces_no_events() {
+        let current = snapshot(vec![neighbor(
+            1,
+            [0, 1, 2, 3, 4, 5],
+            NeighborState::Reachable,
+        )]);
+        let events = diff_neighbor_snapshots(None, &current);
+        assert!(events.is_empty());
+    }
+
+    /// A `NeighborId` present only in the newer snapshot synthesizes
+    /// `ChangeKind::Added`.
+    #[test]
+    fn neighbor_diff_reports_added_entries() {
+        let previous = snapshot(vec![]);
+        let current = snapshot(vec![neighbor(
+            1,
+            [0, 1, 2, 3, 4, 5],
+            NeighborState::Reachable,
+        )]);
+        let events = diff_neighbor_snapshots(Some(&previous), &current);
+        assert_eq!(
+            events,
+            vec![Event::Neighbor {
+                id: NeighborId::new(1),
+                kind: ChangeKind::Added,
+            }]
+        );
+    }
+
+    /// A `NeighborId` present only in the older snapshot synthesizes
+    /// `ChangeKind::Removed`.
+    #[test]
+    fn neighbor_diff_reports_removed_entries() {
+        let previous = snapshot(vec![neighbor(
+            1,
+            [0, 1, 2, 3, 4, 5],
+            NeighborState::Reachable,
+        )]);
+        let current = snapshot(vec![]);
+        let events = diff_neighbor_snapshots(Some(&previous), &current);
+        assert_eq!(
+            events,
+            vec![Event::Neighbor {
+                id: NeighborId::new(1),
+                kind: ChangeKind::Removed,
+            }]
+        );
+    }
+
+    /// A `NeighborId` present in both snapshots with a different MAC or
+    /// state synthesizes the conservative `ChangeKind::Changed` fallback.
+    #[test]
+    fn neighbor_diff_reports_changed_mac_and_state() {
+        let previous = snapshot(vec![
+            neighbor(1, [0, 1, 2, 3, 4, 5], NeighborState::Reachable),
+            neighbor(2, [1, 1, 1, 1, 1, 1], NeighborState::Stale),
+        ]);
+        let current = snapshot(vec![
+            neighbor(1, [9, 9, 9, 9, 9, 9], NeighborState::Reachable),
+            neighbor(2, [1, 1, 1, 1, 1, 1], NeighborState::Reachable),
+        ]);
+        let mut events = diff_neighbor_snapshots(Some(&previous), &current);
+        events.sort_by_key(|event| match event {
+            Event::Neighbor { id, .. } => *id,
+            _ => unreachable!("only Neighbor events are synthesized"),
+        });
+        assert_eq!(
+            events,
+            vec![
+                Event::Neighbor {
+                    id: NeighborId::new(1),
+                    kind: ChangeKind::Changed,
+                },
+                Event::Neighbor {
+                    id: NeighborId::new(2),
+                    kind: ChangeKind::Changed,
+                },
+            ]
+        );
+    }
+
+    /// An identical entry across both snapshots synthesizes no event.
+    #[test]
+    fn neighbor_diff_reports_nothing_for_an_unchanged_entry() {
+        let previous = snapshot(vec![neighbor(
+            1,
+            [0, 1, 2, 3, 4, 5],
+            NeighborState::Reachable,
+        )]);
+        let current = previous.clone();
+        let events = diff_neighbor_snapshots(Some(&previous), &current);
+        assert!(events.is_empty());
+    }
+
+    /// Mirrors `windows_backend_does_not_advertise_neighbor_monitoring`: the
+    /// polling addition is the one thing Windows *does* report, since it
+    /// closes exactly the native gap that test asserts.
+    #[test]
+    fn windows_backend_advertises_neighbor_monitoring_polling_addition() {
+        let backend = WindowsBackend::new().expect("failed to create Windows backend");
+        assert!(
+            backend
+                .additions()
+                .contains(Addition::NEIGHBOR_MONITORING_POLLING)
+        );
+    }
+
+    /// Requesting any bit other than `NEIGHBOR_MONITORING_POLLING` is
+    /// rejected via `AdditionProvider::watch_addition`'s own default
+    /// behavior — this backend overrides the method only for the one bit it
+    /// actually supports.
+    #[test]
+    fn watch_addition_rejects_an_unsupported_bit() {
+        let backend = WindowsBackend::new().expect("failed to create Windows backend");
+        let result = backend.watch_addition(Addition::empty());
+        assert!(matches!(result, Err(Error::Unsupported)));
+    }
+
+    /// The underlying `neighbors()` read is unprivileged (see
+    /// `neighbors_reads_the_real_kernel_neighbor_table` above), so this
+    /// exercises the real polling thread end-to-end without requiring
+    /// `#[ignore]`: it starts the addition, confirms at least one poll runs
+    /// (a resync/error/event delivery would all prove the thread is alive;
+    /// absent any real neighbor-table change, an idle host may legitimately
+    /// deliver nothing within the timeout), then drops the receiver and
+    /// confirms drop does not hang or panic — the polling thread's stop
+    /// channel/join teardown is what this asserts, not any particular
+    /// synthesized event.
+    #[test]
+    fn watch_addition_polling_thread_starts_and_tears_down_on_drop() {
+        let backend = WindowsBackend::new().expect("failed to create Windows backend");
+        let receiver = backend
+            .watch_addition(Addition::NEIGHBOR_MONITORING_POLLING)
+            .expect("failed to start neighbor-monitoring-via-polling addition");
+        // Best-effort: on a quiet host, no neighbor-table change may occur
+        // within this timeout, so a `None` result here is not a failure —
+        // only that dropping the receiver afterward must not hang or panic.
+        let _ = receiver.recv_timeout(Duration::from_millis(50));
+        drop(receiver);
     }
 }
