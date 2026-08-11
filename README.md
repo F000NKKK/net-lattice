@@ -227,6 +227,23 @@ Check `Capability::NEIGHBOR_MONITORING` (the "Neighbor change monitoring"
 row above) before watching for neighbor-table changes; it is currently
 advertised on Linux and macOS, but not Windows.
 
+Windows's missing native neighbor-change monitoring has an opt-in,
+non-native substitute: the `Addition::NEIGHBOR_MONITORING_POLLING`
+capability, consumed through `Lattice::watch_with_additions` rather than
+`watch`/`watch_filtered`. This does not change the "Neighbor change
+monitoring" row above — `Capability::NEIGHBOR_MONITORING` is still
+unavailable on Windows, and an `Addition` is never rendered as an ordinary
+`Capability` checkmark in this or any other per-backend matrix (see
+ARCHITECTURE.md's "Platform Support Matrix and Gaps" section for the
+warning-marker convention and the addition's weaker delivery guarantees —
+bounded polling latency, no ordering relative to native-sourced events, and
+possible coalescing of opposite changes within one poll interval). An
+`additions` bit not reported by the connected backend's
+`AdditionProvider::additions()` is silently not activated rather than an
+error, matching `Capability`'s own "query, don't assume" contract, so a
+caller may request `NEIGHBOR_MONITORING_POLLING` unconditionally and simply
+receive no addition-sourced events on a backend that does not report it.
+
 ### Event delivery
 
 Event streams are bounded. If a consumer falls behind, the watcher records and delivers `Event::ResyncRequired { .. }` before a subsequent ordinary event instead of retaining an unbounded backlog. Re-read the affected provider state before relying on subsequent events.
