@@ -971,10 +971,32 @@ gap, not only in the frozen-API checklist above.
 No other missing-capability or behavioral gap was found across the three
 backends beyond the three above; this section is the single place that
 consolidates them for a reader who wants "what's different per platform"
-without cross-referencing three separate source files' doc comments. A
-future addition-tier subsection (opt-in, non-native capabilities layered on
-top of this matrix) is expected to extend this section rather than
-duplicate it.
+without cross-referencing three separate source files' doc comments.
+
+**Warning-marker convention for opt-in, non-native "additions."** A native
+`Capability` flag is rendered with an ordinary checkmark (✓) in any matrix
+that lists per-backend support; a `net_lattice_platform::Addition` a backend
+reports through `AdditionProvider::additions()` is rendered with a distinct
+warning marker (⚠) instead — never the same checkmark a native `Capability`
+gets, and never silently merged into the same cell as a checkmark. A backend
+with neither the `Capability` nor any covering `Addition` keeps the existing
+flat "unsupported" marker; the two Darwin gaps above are exactly that case
+today and render unchanged. The one concrete row this applies to currently:
+Windows lacks native `Capability::NEIGHBOR_MONITORING` (the gap documented
+above) but reports `Addition::NEIGHBOR_MONITORING_POLLING` through its
+`AdditionProvider` implementation (`crates/net-lattice-backend-windows/src/
+lib.rs`) — a caller who explicitly opts in via `Lattice::watch_with_additions`
+gets neighbor-change events synthesized by polling, marked ⚠ rather than ✓
+to signal it is an opt-in, weaker-guarantee substitute, not equivalent to
+the native mechanism. The quality-tier caveat behind the ⚠ marker (latency,
+ordering, coalescing, and resource-cost differences from native monitoring)
+is documented once on `Addition::NEIGHBOR_MONITORING_POLLING`'s own rustdoc
+(`crates/net-lattice-platform/src/addition.rs`) and summarized in "Event
+Delivery Guarantees" below — this section states only the marker convention
+and the row it currently applies to, it does not restate the caveat's
+substance. This convention is available for any future addition beyond this
+first one; adding a new `Addition` flag extends this same paragraph rather
+than introducing a second convention.
 
 ## Event Delivery Guarantees
 
@@ -1041,11 +1063,44 @@ covers only the *signal*, not recovery of the specific dropped changes.
 Net Lattice makes no exactly-once or fully-guaranteed-delivery claim
 anywhere in the event path.
 
-This section is expected to grow a further subsection covering
-addition-sourced events (non-native, opt-in event producers layered on top
-of this native event path) once that capability lands; extend this section
-in place rather than creating a second, competing "Event Delivery
-Guarantees" section elsewhere in this document.
+### Addition-sourced events: a distinct, weaker guarantee tier
+
+`Lattice::watch_with_additions` merges native events with events synthesized
+by an explicitly requested `net_lattice_platform::Addition` (for example,
+Windows's `Addition::NEIGHBOR_MONITORING_POLLING`, which polls
+`NeighborProvider::neighbors()` in place of the native push subscription
+Windows lacks — see "Platform Support Matrix and Gaps" above for the ⚠
+marker convention this addition renders under). Addition-sourced events
+share the merged stream's `Event`/`EventReceiver` shape and its existing
+at-most-once/coalesced-resync/no-cross-domain-ordering contract described
+above, but carry additional, strictly weaker guarantees of their own,
+authoritatively documented on each `Addition` flag's own rustdoc
+(`crates/net-lattice-platform/src/addition.rs`) rather than duplicated here.
+Summarized for the reader:
+
+- **Latency** is bounded by the addition's polling interval (2 seconds by
+  default for `NEIGHBOR_MONITORING_POLLING`), not sub-second/push-based —
+  unlike a native producer, an addition-sourced change can take up to one
+  interval to surface.
+- **Ordering** carries no guarantee relative to the native-sourced portion
+  of the same merged stream, in addition to (not instead of) the existing
+  no-cross-domain-ordering guarantee above — addition-vs-native interleaving
+  is unordered the same way cross-domain native events already are.
+- **Coalescing** can make a change invisible entirely: two opposite changes
+  that cancel out within one poll interval (for example, a neighbor added
+  then removed before the next poll) never appear in the stream — a real
+  behavior difference from native monitoring, not merely a delay.
+- **Resource cost** is non-zero and caller-controlled: an addition starts
+  one background thread/timer only when a caller actually requests it via
+  `watch_with_additions`, torn down on `EventReceiver` drop the same way a
+  native subscription is — never started implicitly.
+
+No existing guarantee stated earlier in this section is weakened or
+reinterpreted by this subsection; addition-sourced events are additive to,
+and always distinguishable in quality tier from, the native event path.
+Extend this subsection in place for any future `Addition` rather than
+creating a second, competing "Event Delivery Guarantees" section elsewhere
+in this document.
 
 ## Explicit Non-Goals of This Architecture
 
