@@ -311,7 +311,7 @@ if lattice.supports(Capability::ROUTE_MONITORING) {
 15. **Stage 0.19: Декларативный diff** — отдельные конфигурационные типы `DesiredState` и inspectable `Diff` без mutation.
 16. **Stage 0.20: Декларативное применение** — компиляция `Diff` в `ApplyPlan` и его исполнение через transaction engine.
 17. **Stage 0.21: Pre-1.0 hardening** — заморозка публичных контрактов, правил identity и capability, гарантий событий, матрицы платформ и privileged regression coverage.
-18. **Stage 0.22+: Домены Capability** — VLAN, VRF, namespaces, firewall и tunnels, каждый с полным контрактом read/intent/mutation/event/capability/tests. Они не являются prerequisite для 1.0.
+18. **Stage 0.22+: Домены Capability** — VLAN, VRF, namespaces и firewall, каждый с полным контрактом read/intent/mutation/event/capability/tests. Они не являются prerequisite для 1.0. Управление tunnel-интерфейсами вне зоны ответственности этого репозитория; см. [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) в таблице экосистемы выше.
 19. **1.0** — стабильная основа для контрактов inspection, monitoring, imperative mutation, transactions и declarative apply. Она закрывается compatibility audit из 0.21, а не каждым будущим сетевым доменом.
 
 Этапы — это границы поставки, а не обещание одного релиза на каждый заголовок: platform validation может разделить этап, а focused hardening-релизы могут появляться между этапами. О том, что реально вышло в каждом датированном релизе, см. [CHANGELOG.md](CHANGELOG.md).

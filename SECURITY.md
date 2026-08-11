@@ -10,7 +10,7 @@ and support for the 0.1.x-0.20.x series has ended (see
 | Version | Supported |
 | ------- | --------- |
 | 0.21.x | ✅ |
-| 0.1.x - 0.20.x | ❌ |
+| 0.1.x - 0.21.0 | ❌ |
 
 ## Reporting a Vulnerability
 
@@ -68,8 +68,10 @@ removal request cannot silently evict a dynamically learned ARP/NDP cache
 entry. Reports involving unintended network mutation, partial DNS
 application, privilege confusion, or memory-safety issues in route,
 interface, DNS, neighbor, address, or monitoring message/data handling are
-in scope. Firewall, VLAN, VRF, namespace, isolated destructive topology
-orchestration, and tunnel domains do not exist yet.
+in scope. Firewall, VLAN, VRF, namespace, and isolated destructive topology
+orchestration domains do not exist yet. Tunnel interface management is out
+of scope for this repository entirely; see the separate tunnel-lattice
+project for that domain's security policy.
 
 The model also publishes a declarative desired-state layer built on top of
 the same providers above: a whole-system `DesiredState` aggregate, a pure

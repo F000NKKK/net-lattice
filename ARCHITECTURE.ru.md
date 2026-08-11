@@ -1175,9 +1175,14 @@ Lattice нигде в пути событий не даёт гарантии exa
 - **Никакого интерфейса командной строки.** В соответствии с не-целями
   проекта в [README.md](README.md), крейт `net-lattice-cli` не планируется.
 - **Никакого преждевременного создания крейтов.** Крейты для будущих доменов
-  (VLAN, VRF, firewall, туннели, декларативная конфигурация, транзакционные
+  (VLAN, VRF, firewall, декларативная конфигурация, транзакционные
   apply/rollback) описаны в дорожной карте ниже, но не создаются, пока под
   них нет реального кода.
+- **Никакого управления tunnel-интерфейсами.** TUN/TAP tunnel-интерфейсы —
+  зона ответственности отдельного репозитория
+  [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) в более
+  широкой экосистеме Lattice, а не дорожной карты этого крейта; см. раздел
+  README.md «The Lattice ecosystem».
 
 ## План поэтапной поставки
 
@@ -1210,7 +1215,7 @@ Lattice нигде в пути событий не даёт гарантии exa
 | 0.19 | Декларативная модель и diff: конфигурационные типы `DesiredState` остаются отдельными от наблюдаемых типов; создаётся inspectable `Diff` без его применения. |
 | 0.20 | Декларативное применение: `Diff` компилируется в `ApplyPlan`, исполняется через transaction engine и сообщает о convergence, non-convergence и результатах compensation. |
 | 0.21 | Pre-1.0 hardening: заморозка core model, provider extension contracts, правил identity, значений capability, гарантий событий и матрицы поддержки платформ; завершение cross-platform privileged regression coverage и migration guidance. |
-| 0.22+ | Домены Capability, каждый вводится только вместе со своей read model, intent model, семантикой mutation, событиями там, где их поддерживает ОС, capabilities и all-platform tests: сначала VLAN, затем VRF, namespaces, firewall и tunnels по мере зрелости их платформенных контрактов. Эти домены не являются prerequisite для 1.0. |
+| 0.22+ | Домены Capability, каждый вводится только вместе со своей read model, intent model, семантикой mutation, событиями там, где их поддерживает ОС, capabilities и all-platform tests: сначала VLAN, затем VRF, namespaces и firewall по мере зрелости их платформенных контрактов. Эти домены не являются prerequisite для 1.0. Управление tunnel-интерфейсами вне зоны ответственности этого репозитория (см. крейт экосистемы `tunnel-lattice`). |
 | 1.0 | Стабильная кроссплатформенная основа для реализованных контрактов inspection, monitoring, imperative mutation, transactions и declarative apply. 1.0 закрывается compatibility audit из 0.21, а не реализацией всех будущих capability-доменов. |
 
 Ожидается, что каждый этап проверяет архитектуру перед началом следующего;
@@ -1230,8 +1235,8 @@ routes, addresses и DNS. Этого достаточно, чтобы начат
 intent-моделей, а declarative apply должен определяться через явные операции,
 а не через повторное использование observed-объектов как desired state.
 
-Граница 1.0 намеренно не требует поддержки VLAN, VRF, namespaces, firewall
-или tunnels. Она требует, чтобы каждый уже заявленный как стабильный API имел
+Граница 1.0 намеренно не требует поддержки VLAN, VRF, namespaces или
+firewall. Она требует, чтобы каждый уже заявленный как стабильный API имел
 документированный кроссплатформенный контракт, честное поведение capabilities
 и privileges, bounded-семантику событий, детерминированные transaction reports
 и privileged regression coverage на каждой поддерживаемой платформе.

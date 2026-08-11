@@ -1119,9 +1119,13 @@ in this document.
 - **No command-line interface.** Consistent with the project's non-goals in
   [README.md](README.md), no `net-lattice-cli` crate is planned.
 - **No premature crate creation.** Crates for future domains (VLAN, VRF,
-  firewall, tunnels, declarative configuration, transactional apply/rollback)
-  are described in the roadmap below but are not created until there is
-  actual code to put in them.
+  firewall, declarative configuration, transactional apply/rollback) are
+  described in the roadmap below but are not created until there is actual
+  code to put in them.
+- **No tunnel interface management.** TUN/TAP tunnel interfaces are the
+  scope of the separate [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice)
+  repository in the wider Lattice ecosystem, not this crate's roadmap; see
+  README.md's "The Lattice ecosystem" section.
 
 ## Incremental Delivery Plan
 
@@ -1154,7 +1158,7 @@ describe planned, not-yet-built work.
 | 0.19 | Declarative model and diff: `DesiredState` configuration types remain distinct from observed types; produce an inspectable `Diff` without applying it. |
 | 0.20 | Declarative apply: compile a `Diff` into an `ApplyPlan`, execute it through the transaction engine, and report convergence, non-convergence, and compensation results. |
 | 0.21 | Pre-1.0 hardening: freeze the core model, provider extension contracts, identity rules, capability meanings, event guarantees, and platform support matrix; complete cross-platform privileged regression coverage and migration guidance. |
-| 0.22+ | Capability domains, each introduced only with its read model, intent model, mutation semantics, events where the OS supports them, capabilities, and all-platform tests: VLAN first, then VRF, namespaces, firewall, and tunnels as their platform contracts mature. These domains are not prerequisites for 1.0. |
+| 0.22+ | Capability domains, each introduced only with its read model, intent model, mutation semantics, events where the OS supports them, capabilities, and all-platform tests: VLAN first, then VRF, namespaces, and firewall as their platform contracts mature. These domains are not prerequisites for 1.0. Tunnel interface management is out of scope for this repository (see the ecosystem's `tunnel-lattice` crate). |
 | 1.0 | Stable cross-platform foundation for the implemented inspection, monitoring, imperative mutation, transactions, and declarative apply contracts. 1.0 is gated by the 0.21 compatibility audit, not by implementing every future capability domain. |
 
 Each stage is expected to validate the architecture before the next is
@@ -1174,8 +1178,8 @@ mutation still need their own intent models, and declarative apply must be
 defined in terms of explicit operations rather than by reusing observed
 objects as desired state.
 
-The 1.0 boundary intentionally does not require VLAN, VRF, namespaces,
-firewall, or tunnel support. It requires that every API already advertised as
+The 1.0 boundary intentionally does not require VLAN, VRF, namespaces, or
+firewall support. It requires that every API already advertised as
 stable has a documented cross-platform contract, truthful capability and
 privilege behavior, bounded event semantics, deterministic transaction
 reporting, and privileged regression coverage on each supported platform.
