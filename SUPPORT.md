@@ -32,6 +32,19 @@ backend-aware route-replacement ordering), and `Lattice::execute_apply_plan`/
 `Lattice::apply` execute that plan against the connected backend, reporting
 convergence, non-convergence, and capability-aware rejection distinctly.
 This surface is verified by privileged Linux, Windows, and macOS CI and is
-part of the published support surface. See [README.md](README.md)'s Current
-Status for the full capability matrix; questions about usage, direction, and
-design are all welcome.
+part of the published support surface. Alongside the uniform `Capability`
+tier, an explicitly opt-in Addition tier now covers non-native, disjoint
+capabilities that never merge into `Capability`'s cross-backend-uniform
+meaning: `net-lattice-platform::{Addition, AdditionProvider}` describe them,
+`Lattice::watch_with_additions` activates requested `Addition`s alongside
+`watch_filtered`'s domain filtering and fans their synthesized events into
+the same merged receiver, and this release ships one concrete instance,
+Windows neighbor-monitoring-via-polling
+(`Addition::NEIGHBOR_MONITORING_POLLING`), as an opt-in substitute where
+native neighbor-change monitoring is still unavailable on that platform.
+This release also completed the pre-1.0 API freeze and hardening pass:
+the public surface is now frozen, the platform-support-matrix and event-
+delivery-guarantee documentation is consolidated, and privileged regression
+coverage is complete across all three backends. See [README.md](README.md)'s
+Current Status for the full capability matrix; questions about usage,
+direction, and design are all welcome.
