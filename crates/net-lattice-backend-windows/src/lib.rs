@@ -3592,8 +3592,14 @@ mod tests {
             neighbor(2, [1, 1, 1, 1, 1, 1], NeighborState::Reachable),
         ]);
         let mut events = diff_neighbor_snapshots(Some(&previous), &current);
+        // `diff_neighbor_snapshots` iterates a `HashMap`, so the resulting
+        // order is not part of its contract (no ordering guarantee across
+        // producers, per this session's Event Delivery Guarantees finding);
+        // sort by the `Id<T>` inner numeric value (`Id<T>` deliberately does
+        // not implement `Ord` itself) purely so this assertion is
+        // order-independent and deterministic.
         events.sort_by_key(|event| match event {
-            Event::Neighbor { id, .. } => *id,
+            Event::Neighbor { id, .. } => id.value(),
             _ => unreachable!("only Neighbor events are synthesized"),
         });
         assert_eq!(
