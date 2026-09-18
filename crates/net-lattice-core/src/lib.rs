@@ -4,6 +4,8 @@
 //! types — those belong to `net-lattice-ip` and `net-lattice-model`. See
 //! ARCHITECTURE.md for the full rationale.
 
+#![warn(missing_docs)]
+
 mod error;
 mod id;
 

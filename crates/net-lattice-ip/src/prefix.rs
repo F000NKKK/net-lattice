@@ -5,6 +5,7 @@ use std::fmt;
 pub struct Ipv4PrefixLength(u8);
 
 impl Ipv4PrefixLength {
+    /// The maximum valid IPv4 prefix length.
     pub const MAX: u8 = 32;
 
     /// Validates `value` as an IPv4 prefix length, returning `None` when it
@@ -30,6 +31,7 @@ impl Ipv4PrefixLength {
         }
     }
 
+    /// Returns the underlying prefix length value.
     pub const fn value(&self) -> u8 {
         self.0
     }
@@ -46,6 +48,7 @@ impl fmt::Display for Ipv4PrefixLength {
 pub struct Ipv6PrefixLength(u8);
 
 impl Ipv6PrefixLength {
+    /// The maximum valid IPv6 prefix length.
     pub const MAX: u8 = 128;
 
     /// Validates `value` as an IPv6 prefix length, returning `None` when it
@@ -64,6 +67,7 @@ impl Ipv6PrefixLength {
         }
     }
 
+    /// Returns the underlying prefix length value.
     pub const fn value(&self) -> u8 {
         self.0
     }

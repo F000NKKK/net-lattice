@@ -8,7 +8,9 @@ use net_lattice_core::Result;
 /// associated input and output types are distinct because an OS-observed
 /// address has an ID and derived attributes that are not caller intent.
 pub trait AddressMutator {
+    /// Caller-authored intent for the address to assign.
     type NewInterfaceAddress;
+    /// The backend's observed address record.
     type InterfaceAddress;
 
     /// Assigns an address and returns the canonical record observed from the

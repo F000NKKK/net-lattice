@@ -15,8 +15,10 @@ use net_lattice_core::Result;
 /// [`crate::InterfaceMutator`], and [`crate::NeighborProvider`]/
 /// [`crate::NeighborMutator`].
 pub trait RouteProvider {
+    /// The backend's observed route record.
     type Route;
 
+    /// Returns every route currently observed in the routing table.
     fn routes(&self) -> Result<Vec<Self::Route>>;
 }
 
@@ -35,9 +37,12 @@ pub trait RouteProvider {
 /// the facade binds it to `net_lattice_model::route::RouteConfig`, a
 /// distinct intent type with no id field.
 pub trait RouteMutator {
+    /// Caller-authored route intent, with no backend-synthesized identity.
     type RouteConfig;
 
+    /// Adds a route matching the given intent.
     fn add_route(&self, route: Self::RouteConfig) -> Result<()>;
+    /// Removes the route matching the given intent.
     fn remove_route(&self, route: Self::RouteConfig) -> Result<()>;
 
     /// Whether this backend's native add/remove route calls read or write a

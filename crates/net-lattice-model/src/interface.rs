@@ -77,7 +77,9 @@ impl fmt::Display for InterfaceKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum AdminState {
+    /// The interface is administratively enabled.
     Up,
+    /// The interface is administratively disabled.
     Down,
     /// The platform does not expose a separate administrative state (e.g.
     /// BSD/macOS route-socket interfaces report a single combined state).
@@ -174,7 +176,9 @@ impl InterfaceConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum OperationalState {
+    /// The interface is up and has carrier / lower-layer connectivity.
     Up,
+    /// The interface is down.
     Down,
     /// The interface is up but has no carrier / lower-layer connectivity.
     NoCarrier,
@@ -194,17 +198,24 @@ pub enum OperationalState {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Interface {
+    /// This interface's identity.
     pub id: InterfaceId,
     /// The OS-level interface index (`ifindex` on Linux, `InterfaceIndex` on
     /// Windows, `if_index` on BSD/macOS). This is the same raw value
     /// `Route::interface_index` carries — kept here as the canonical home
     /// now that the `interface` domain exists (Stage 0.4).
     pub index: u32,
+    /// The interface's name (e.g. `eth0`, `Ethernet`, `en0`).
     pub name: String,
+    /// What kind of interface this is.
     pub kind: InterfaceKind,
+    /// The interface's hardware address, if it has one.
     pub mac: Option<MacAddress>,
+    /// The interface's configured MTU, if reported.
     pub mtu: Option<u32>,
+    /// The interface's administrative state.
     pub admin_state: AdminState,
+    /// The interface's operational (link-layer) state.
     pub operational_state: OperationalState,
 }
 

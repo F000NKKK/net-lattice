@@ -75,13 +75,21 @@ pub enum MutationSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum MutationKind {
+    /// Adds a route.
     AddRoute,
+    /// Removes a route.
     RemoveRoute,
+    /// Adds an interface address.
     AddAddress,
+    /// Removes an interface address.
     RemoveAddress,
+    /// Replaces the resolver configuration.
     SetDnsConfig,
+    /// Patches an interface's configuration.
     SetInterfaceConfig,
+    /// Adds a static ARP/NDP neighbor entry.
     AddStaticNeighbor,
+    /// Removes a static ARP/NDP neighbor entry.
     RemoveStaticNeighbor,
     /// A destination-paired route replacement ([`crate::apply::ApplyStep::ReplaceRoute`]):
     /// one logical unit removing an observed route and adding its desired

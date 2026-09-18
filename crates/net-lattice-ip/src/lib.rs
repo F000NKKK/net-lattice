@@ -3,6 +3,8 @@
 //! Pure data and arithmetic, no operating-system dependency. Buildable for
 //! any target, including `wasm32`.
 
+#![warn(missing_docs)]
+
 mod ipv4;
 mod ipv6;
 mod prefix;

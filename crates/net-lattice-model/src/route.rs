@@ -13,9 +13,13 @@ use crate::address::{IpAddress, Network};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Route {
+    /// This route's identity.
     pub id: RouteId,
+    /// The destination network this route matches.
     pub destination: Network,
+    /// The next-hop gateway address, if any (absent for an on-link route).
     pub gateway: Option<IpAddress>,
+    /// The route's metric (preference), if reported.
     pub metric: Option<u32>,
     /// The outgoing interface, identified by its raw OS-level index.
     ///
@@ -89,7 +93,9 @@ impl Route {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct RouteConfig {
+    /// The destination network this route intent matches.
     pub destination: Network,
+    /// The requested next-hop gateway address, if any.
     pub gateway: Option<IpAddress>,
     /// Requested route metric. Honored on Linux and Windows. **Not
     /// supported on Darwin**: no native call reads or writes route metric
@@ -100,6 +106,7 @@ pub struct RouteConfig {
     /// field gap in this crate (see [`Route::interface_index`]'s doc
     /// comment for the same pattern).
     pub metric: Option<u32>,
+    /// The requested outgoing interface's raw OS-level index.
     pub interface_index: Option<u32>,
 }
 

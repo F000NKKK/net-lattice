@@ -26,6 +26,7 @@ pub struct DnsConfig {
 }
 
 impl DnsConfig {
+    /// Returns an empty `DnsConfig` with no nameservers or search domains.
     pub fn new() -> Self {
         Self::default()
     }

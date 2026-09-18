@@ -7,6 +7,8 @@
 //! block an executor thread. No Tokio, async-std, or smol dependency is
 //! imposed.
 
+#![warn(missing_docs)]
+
 use std::pin::Pin;
 use std::sync::{
     Arc,

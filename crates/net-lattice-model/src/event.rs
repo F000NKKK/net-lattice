@@ -7,7 +7,9 @@ use crate::route::RouteId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ChangeKind {
+    /// An object matching the filter was added.
     Added,
+    /// An object matching the filter was removed.
     Removed,
     /// Reserved for a future field-mask payload (`Changed { fields: ... }`)
     /// — see ARCHITECTURE.md's note on `Event`. Carries no detail yet: a
@@ -20,10 +22,15 @@ pub enum ChangeKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum EventDomain {
+    /// The routing table domain.
     Route,
+    /// The network interface domain.
     Interface,
+    /// The static ARP/NDP neighbor domain.
     Neighbor,
+    /// The interface-address domain.
     Address,
+    /// Every domain.
     All,
 }
 
@@ -41,6 +48,7 @@ pub struct EventFilter {
 }
 
 impl EventFilter {
+    /// A filter that selects every domain and object, with no narrowing.
     pub const ALL: Self = Self {
         routes: true,
         interfaces: true,
@@ -51,6 +59,7 @@ impl EventFilter {
         neighbor_ids: None,
         address_ids: None,
     };
+    /// A filter that selects nothing until narrowed with a builder method.
     pub const fn none() -> Self {
         Self {
             routes: false,
@@ -229,29 +238,44 @@ impl Default for EventFilter {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Event {
+    /// A route was added, removed, or changed.
     Route {
+        /// The affected route's identity.
         id: RouteId,
+        /// What kind of change occurred.
         kind: ChangeKind,
     },
+    /// An interface was added, removed, or changed.
     Interface {
+        /// The affected interface's identity.
         id: InterfaceId,
+        /// What kind of change occurred.
         kind: ChangeKind,
     },
+    /// A static neighbor entry was added, removed, or changed.
     Neighbor {
+        /// The affected neighbor entry's identity.
         id: NeighborId,
+        /// What kind of change occurred.
         kind: ChangeKind,
     },
+    /// An interface address was added, removed, or changed.
     Address {
+        /// The affected interface address's identity.
         id: InterfaceAddressId,
+        /// What kind of change occurred.
         kind: ChangeKind,
     },
     /// Notifications were dropped because the bounded queue filled; re-read
     /// the indicated domain before relying on later signals.
     ResyncRequired {
+        /// The domain whose state must be re-read.
         domain: EventDomain,
     },
 }
 impl Event {
+    /// Returns a [`ResyncRequired`](Event::ResyncRequired) event covering
+    /// every domain.
     pub const fn resync_all() -> Self {
         Self::ResyncRequired {
             domain: EventDomain::All,

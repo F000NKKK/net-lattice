@@ -37,6 +37,8 @@ impl<E> EventSender<E> {
             Err(mpsc::TrySendError::Disconnected(_)) => false,
         }
     }
+    /// Delivers a terminal error to the receiver, returning `false` if it has
+    /// already disconnected.
     pub fn send_error(&self, error: Error) -> bool {
         self.sender.send(Err(error)).is_ok()
     }
@@ -244,10 +246,16 @@ impl<E> Iterator for EventReceiver<E> {
 /// monitoring capability contract. The facade maps its concrete event-domain
 /// filter to the matching runtime capability before calling this trait.
 pub trait EventProvider {
+    /// The backend's observed change-event type.
     type Event;
+    /// The backend's event-domain/object filter type.
     type EventFilter;
 
+    /// Starts watching every modeled event domain, returning a receiver fed
+    /// as native changes occur.
     fn watch(&self) -> Result<EventReceiver<Self::Event>>;
+    /// Starts watching only the domains/objects selected by `filter`,
+    /// returning a receiver fed as matching native changes occur.
     fn watch_filtered(&self, filter: Self::EventFilter) -> Result<EventReceiver<Self::Event>>;
 }
 

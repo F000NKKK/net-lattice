@@ -12,7 +12,9 @@ use net_lattice_core::Result;
 /// [`DnsProvider`](crate::DnsProvider): adding/removing static neighbor
 /// entries is a separate concern deferred to a later stage.
 pub trait NeighborProvider {
+    /// The backend's observed neighbor entry record.
     type NeighborEntry;
 
+    /// Returns every neighbor table entry currently observed on the system.
     fn neighbors(&self) -> Result<Vec<Self::NeighborEntry>>;
 }

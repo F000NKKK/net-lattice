@@ -8,6 +8,7 @@
 //! `net_lattice_model::route::Route`.
 
 #![cfg(target_os = "linux")]
+#![warn(missing_docs)]
 
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
@@ -59,6 +60,8 @@ impl Drop for LinuxWatch {
 }
 
 impl LinuxBackend {
+    /// Connects to the kernel over Netlink, spawning a private Tokio runtime
+    /// to drive the connection.
     pub fn new() -> Result<Self> {
         let runtime =
             tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;

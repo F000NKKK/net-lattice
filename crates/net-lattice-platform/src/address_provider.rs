@@ -13,7 +13,9 @@ use net_lattice_core::Result;
 /// [`NeighborProvider`](crate::NeighborProvider): adding/removing addresses
 /// is a separate concern deferred to a later stage.
 pub trait AddressProvider {
+    /// The backend's observed interface-address record.
     type InterfaceAddress;
 
+    /// Returns every interface address currently observed on the system.
     fn addresses(&self) -> Result<Vec<Self::InterfaceAddress>>;
 }

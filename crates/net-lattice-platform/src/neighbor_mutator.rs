@@ -13,7 +13,9 @@ use net_lattice_core::Result;
 /// permanent (static) entry rather than silently deleting dynamically
 /// learned ARP/NDP state; see ADR-0001 for the full rationale.
 pub trait NeighborMutator {
+    /// Caller-authored intent for the static neighbor entry.
     type StaticNeighbor;
+    /// The backend's observed neighbor entry record.
     type NeighborEntry;
 
     /// Adds a static neighbor entry and returns the observed record read

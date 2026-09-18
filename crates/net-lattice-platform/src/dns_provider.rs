@@ -12,7 +12,9 @@ use net_lattice_core::Result;
 /// contract. Together these traits form the official DNS extension API for
 /// third-party backends.
 pub trait DnsProvider {
+    /// The backend's observed resolver configuration record.
     type DnsConfig;
 
+    /// Returns the system's current resolver configuration.
     fn dns_config(&self) -> Result<Self::DnsConfig>;
 }

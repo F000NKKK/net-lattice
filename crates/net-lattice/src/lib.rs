@@ -167,6 +167,8 @@
 //! changelog; keeping items reachable from two or three separate rendered
 //! docs.rs pages would only ship redundant duplication for no benefit.
 
+#![warn(missing_docs)]
+
 // Async event adapters, enabled by the `async` feature. Not re-exported at
 // the crate root (Category A, see the module docs above); reachable via
 // `monitoring::EventStream`.

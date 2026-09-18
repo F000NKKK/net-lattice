@@ -10,7 +10,9 @@ use net_lattice_ip::{Ipv4Address, Ipv4Network, Ipv6Address, Ipv6Network};
 /// v4- or v6-only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IpAddress {
+    /// An IPv4 address.
     V4(Ipv4Address),
+    /// An IPv6 address.
     V6(Ipv6Address),
 }
 
@@ -38,7 +40,9 @@ impl fmt::Display for IpAddress {
 /// An IP network of either family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Network {
+    /// An IPv4 network.
     V4(Ipv4Network),
+    /// An IPv6 network.
     V6(Ipv6Network),
 }
 

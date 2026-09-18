@@ -49,14 +49,17 @@ pub enum NeighborState {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct NeighborEntry {
+    /// This entry's identity.
     pub id: NeighborId,
     /// The OS-level interface index this entry was observed on, the same raw
     /// value `Interface::index`/`Route::interface_index` carry.
     pub interface_index: u32,
+    /// The neighbor's IP address.
     pub address: IpAddress,
     /// Absent for an entry still being resolved (`NeighborState::Incomplete`)
     /// or one the platform reports without a link-layer address at all.
     pub mac: Option<MacAddress>,
+    /// The entry's reachability state.
     pub state: NeighborState,
 }
 

@@ -22,8 +22,11 @@ bitflags::bitflags! {
     /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Capability: u64 {
+        /// The backend supports IPv6 for this domain.
         const IPV6 = 1 << 0;
+        /// The backend supports VRF (virtual routing and forwarding).
         const VRF = 1 << 1;
+        /// The backend supports network namespaces.
         const NAMESPACES = 1 << 2;
         /// The backend delivers native route-change notifications.
         const ROUTE_MONITORING = 1 << 3;
@@ -80,6 +83,8 @@ bitflags::bitflags! {
 /// worth surfacing to the caller. `addresses`-style methods that really do
 /// call into the OS keep returning `Result`.
 pub trait CapabilityProvider {
+    /// Returns the runtime-dependent capabilities the connected backend
+    /// currently has available.
     fn capabilities(&self) -> Capability;
 }
 

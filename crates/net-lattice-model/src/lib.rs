@@ -11,17 +11,26 @@
 //! `DesiredState` (`diff`); and the pure, side-effect-free `ApplyPlan`
 //! compiled from a `Diff` (`apply`).
 
+#![warn(missing_docs)]
+
 mod address;
 pub mod apply;
 pub mod desired_state;
 pub mod diff;
+/// Observed and desired system resolver (DNS) configuration.
 pub mod dns;
+/// Change-notification event types and filtering.
 pub mod event;
+/// Observed interface-address (IP address on interface) state.
 pub mod ifaddr;
+/// Observed and desired network interface state.
 pub mod interface;
+/// Hardware (MAC) address types.
 pub mod mac;
 pub mod mutation;
+/// Observed and desired static ARP/NDP neighbor entries.
 pub mod neighbor;
+/// Observed and desired routing table entries.
 pub mod route;
 pub mod snapshot;
 

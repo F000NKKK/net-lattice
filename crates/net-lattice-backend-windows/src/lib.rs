@@ -8,6 +8,7 @@
 //! `net_lattice_model::route::Route`.
 
 #![cfg(target_os = "windows")]
+#![warn(missing_docs)]
 
 use std::collections::HashMap;
 use std::ffi::c_void;

@@ -41,8 +41,11 @@ pub enum Error {
 /// not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlatformErrorCode {
+    /// A Linux `errno` value.
     Linux(i32),
+    /// A Windows error code (`DWORD`).
     Windows(u32),
+    /// A Darwin (macOS) `errno` value.
     Darwin(i32),
 }
 

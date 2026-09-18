@@ -17,6 +17,7 @@ pub struct Id<T> {
 }
 
 impl<T> Id<T> {
+    /// Wraps a raw identifier value as an `Id<T>`.
     pub const fn new(value: u64) -> Self {
         Self {
             value,
@@ -24,6 +25,7 @@ impl<T> Id<T> {
         }
     }
 
+    /// Returns the raw underlying identifier value.
     pub const fn value(&self) -> u64 {
         self.value
     }

@@ -8,6 +8,7 @@
 //! `net_lattice_model::route::Route`.
 
 #![cfg(target_os = "macos")]
+#![warn(missing_docs)]
 
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;

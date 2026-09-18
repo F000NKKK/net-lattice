@@ -15,6 +15,8 @@
 //! tier of non-native capabilities (see [`Addition`]) that never dilutes
 //! `Capability`'s uniform, native-only meaning.
 
+#![warn(missing_docs)]
+
 mod addition;
 mod address_mutator;
 mod address_provider;

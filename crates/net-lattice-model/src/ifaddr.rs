@@ -74,6 +74,7 @@ impl NewInterfaceAddress {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct InterfaceAddress {
+    /// This address's identity.
     pub id: InterfaceAddressId,
     /// The OS-level interface index this address is assigned to, the same
     /// raw value `Interface::index`/`Route::interface_index` carry.
