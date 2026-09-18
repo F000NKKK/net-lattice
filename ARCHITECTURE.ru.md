@@ -5,8 +5,10 @@
 🇺🇸 [English](ARCHITECTURE.md) | 🇷🇺 **Русский**
 
 Этот документ описывает структуру workspace Net Lattice и принципы дизайна,
-лежащие в её основе. Более поздние строки плана поэтапной поставки ниже
-описывают ещё не реализованную, планируемую работу; см.
+лежащие в её основе. План поэтапной поставки ниже реализован вплоть до
+строки 1.0 включительно (аудит заморозки публичного API стадии 0.21,
+закрывающий 1.0, завершён); только строки 0.22+ (домены Capability)
+описывают ещё не реализованную, планируемую работу. См.
 [CHANGELOG.md](CHANGELOG.md) и [README.ru.md](README.ru.md) для датированной
 записи о том, что уже вышло.
 
@@ -577,19 +579,19 @@ callbacks IP Helper Windows пишут в bounded Tokio channel, а reader PF_RO
 macOS пишет прямо в этот channel. Все нативные async transports имеют ту же
 семантику bounded delivery и resynchronization, что и `EventReceiver`.
 
-## Модель состояния: императивно сейчас, декларативно позже
+## Модель состояния: императивная и декларативная
 
-Изначальная поверхность API Net Lattice императивна: `route.add()`,
+Изначальная поверхность API Net Lattice была императивной: `route.add()`,
 `route.delete()`, отражая то, что естественно предоставляют
-`RouteProvider`/`InterfaceProvider`. Это осознанное решение — это наименьшая
-полезная поверхность, и она напрямую отображается на то, что предоставляют
-нативные API платформ.
+`RouteProvider`/`InterfaceProvider`. Это было осознанным решением — это
+наименьшая полезная поверхность, и она напрямую отображается на то, что
+предоставляют нативные API платформ.
 
-Однако декларативная конфигурация — заявленная долгосрочная цель (см.
-"Долгосрочные цели" README), и это другой способ использования тех же
-provider-traits, а не другой контракт backend'а. Доработка этого позже
-затронула бы каждый provider, если это понятие не названо хотя бы сейчас.
-Архитектура резервирует под это место как:
+Декларативная конфигурация была заявленной долгосрочной целью и с тех пор
+реализована (стадии 0.19–0.20): это другой способ использования тех же
+provider-traits, а не другой контракт backend'а, поэтому она не потребовала
+доработки каждого provider'а. Архитектура назвала это понятие заранее, до
+реализации, как:
 
 - `SnapshotProvider` — provider-trait в `net-lattice-platform` (generic
   относительно associated-типа `State`, как и остальные), собирающий
@@ -696,20 +698,22 @@ options: &mut ExecutionOptions<'_>) -> Result<ApplyPlanReport>`,
 доделано после того, как `CurrentState`/`DesiredState` уже были бы слиты в
 один тип.
 
-## Контракт mutation и событий до транзакций
+## Контракт mutation и событий
 
-Текущий imperative API полезен, но ещё не является atomic configuration
-engine. Stage 0.14 превращает следующее наблюдаемое поведение в
-явные метаданные операций, прежде чем transaction API сможет давать более
-сильные обещания.
+Stage 0.14 превратил следующее наблюдаемое по доменам поведение mutation в
+явные метаданные операций (`Mutation`, `MutationPrecondition`,
+`MutationOutcome`, ...), на которых построен transaction executor (стадии
+0.15–0.20: `Lattice::execute_plan`, `ApplyPlan`, `Lattice::apply`), вместо
+того чтобы задним числом заявлять atomicity или более сильные обещания, чем
+поддерживают нативные источники.
 
-| Домен | Текущий контракт mutation | Нормализация, необходимая до declarative apply |
+| Домен | Контракт mutation | Применённая нормализация для declarative apply |
 |---|---|---|
-| Routes | `RouteMutator` добавляет и удаляет через native acknowledgements, под контролем `Capability::ROUTE_MUTATION` (ADR-0002); входом мутации служит отдельный intent-тип `RouteConfig` (ADR-0008), matching при удалении по-прежнему зависит от платформы. | Определить результаты duplicate, absent и ambiguous match поверх уже отделённого route intent и правила precondition/match для операции. |
-| Адреса интерфейсов | `AddressMutator::add_address` возвращает повторно прочитанный `InterfaceAddress`; удаление принимает этот observed record. ID синтезируются из интерфейса и сети, а не выдаются ядром как стабильные identities. | Зафиксировать scope identity, assumptions о collision и preconditions удаления в модели операций. |
-| DNS | `DnsMutator` заменяет portable resolver view и повторно читает `DnsConfig`. Unix переписывает active resolver file и отбрасывает directives вне portable model; Windows меняет global search settings и каждый перечисленный adapter отдельными вызовами. | Отражать scope, manager ownership, persistence и partial-application results в operation report. Не обещать atomic DNS replacement или automatic rollback. |
-| Конфигурация интерфейсов | `InterfaceConfig` — partial desired patch; `InterfaceMutator` изменяет administrative state и/или MTU и возвращает observed readback. Combined native writes могут partially apply. | Сохранять явную compensation и eventual native event delivery; более широкое declarative состояние интерфейса относится к будущим этапам. |
-| Соседи | `NeighborMutator` добавляет и удаляет статические записи ARP/NDP через intent `StaticNeighbor`, под контролем `Capability::NEIGHBOR_MUTATION` (ADR-0001); удаление отказывает для присутствующей, но не `Permanent` записи. | Расширить тот же паттерн intent/mutation на будущие поля домена соседей; дополнительная нормализация для статических записей не требуется. |
+| Routes | `RouteMutator` добавляет и удаляет через native acknowledgements, под контролем `Capability::ROUTE_MUTATION` (ADR-0002); входом мутации служит отдельный intent-тип `RouteConfig` (ADR-0008), matching при удалении по-прежнему зависит от платформы. | Результаты duplicate, absent и ambiguous match определены через `MutationPrecondition` поверх отделённого route intent и правила match для операции. |
+| Адреса интерфейсов | `AddressMutator::add_address` возвращает повторно прочитанный `InterfaceAddress`; удаление принимает этот observed record. ID синтезируются из интерфейса и сети, а не выдаются ядром как стабильные identities. | Scope identity, assumptions о collision и preconditions удаления зафиксированы в модели операций. |
+| DNS | `DnsMutator` заменяет portable resolver view и повторно читает `DnsConfig`. Unix переписывает active resolver file и отбрасывает directives вне portable model; Windows меняет global search settings и каждый перечисленный adapter отдельными вызовами. | Scope, manager ownership, persistence и partial-application results отражены в operation report. Atomic DNS replacement и automatic rollback никогда не обещаются. |
+| Конфигурация интерфейсов | `InterfaceConfig` — partial desired patch; `InterfaceMutator` изменяет administrative state и/или MTU и возвращает observed readback. Combined native writes могут partially apply. | Явная compensation и eventual native event delivery сохранены; более широкое declarative состояние интерфейса теперь существует как per-field patch-diff `InterfaceDiff` (стадия 0.19). |
+| Соседи | `NeighborMutator` добавляет и удаляет статические записи ARP/NDP через intent `StaticNeighbor`, под контролем `Capability::NEIGHBOR_MUTATION` (ADR-0001); удаление отказывает для присутствующей, но не `Permanent` записи. | Тот же паттерн intent/mutation расширяется на будущие поля домена соседей; дополнительная нормализация для статических записей не требуется. |
 
 Каждая будущая mutation-операция должна задавать: target identity и match rule;
 preconditions; idempotent result; нужные privileges; подтверждает ли ОС
@@ -728,8 +732,8 @@ application; и безопасна ли compensating operation. `ApplyPlan` мо
   IP Helper; watcher соседей отсутствует. macOS отслеживает routes,
   interfaces, neighbors и addresses через PF_ROUTE.
 
-Stages 0.15–0.20 должны строить transactions и declarative apply поверх этих
-ограничений, а не задним числом обещать atomicity или event guarantees,
+Stages 0.15–0.20 построили transactions и declarative apply поверх этих
+ограничений, а не задним числом обещали atomicity или event guarantees,
 которых не предоставляют native sources.
 
 ## Правила стабильности API
@@ -1194,8 +1198,9 @@ Lattice нигде в пути событий не даёт гарантии exa
 Полная модель выше — это цель, а не отправная точка. Крейты и модули
 вводятся только тогда, когда под них есть реальная работа по реализации.
 
-Строки до 0.21 включительно реализованы и доступны сегодня; строки начиная с
-0.22 описывают планируемую, ещё не реализованную работу:
+Строки до 0.21 включительно — и freeze/audit 1.0, который она закрывает —
+реализованы и доступны сегодня; только строки доменов Capability 0.22+
+описывают планируемую, ещё не реализованную работу:
 
 | Этап | Объём |
 |-------|-------|
@@ -1219,9 +1224,9 @@ Lattice нигде в пути событий не даёт гарантии exa
 | 0.18 | Основа snapshot: `CurrentState` последовательно собирается из реализованных provider'ов, с явно определёнными scope, consistency и partial-read семантиками snapshot. |
 | 0.19 | Декларативная модель и diff: конфигурационные типы `DesiredState` остаются отдельными от наблюдаемых типов; создаётся inspectable `Diff` без его применения. |
 | 0.20 | Декларативное применение: `Diff` компилируется в `ApplyPlan`, исполняется через transaction engine и сообщает о convergence, non-convergence и результатах compensation. |
-| 0.21 | Pre-1.0 hardening: заморозка core model, provider extension contracts, правил identity, значений capability, гарантий событий и матрицы поддержки платформ; завершение cross-platform privileged regression coverage и migration guidance. |
+| 0.21 | Pre-1.0 hardening: заморозка core model, provider extension contracts, правил identity, значений capability, гарантий событий и матрицы поддержки платформ; завершение cross-platform privileged regression coverage и migration guidance. Завершено — см. «Замороженная публичная поверхность API версии 1.0» ниже. |
 | 0.22+ | Домены Capability, каждый вводится только вместе со своей read model, intent model, семантикой mutation, событиями там, где их поддерживает ОС, capabilities и all-platform tests: сначала VLAN, затем VRF, namespaces и firewall по мере зрелости их платформенных контрактов. Эти домены не являются prerequisite для 1.0. Управление tunnel-интерфейсами вне зоны ответственности этого репозитория (см. крейт экосистемы `tunnel-lattice`). |
-| 1.0 | Стабильная кроссплатформенная основа для реализованных контрактов inspection, monitoring, imperative mutation, transactions и declarative apply. 1.0 закрывается compatibility audit из 0.21, а не реализацией всех будущих capability-доменов. |
+| 1.0 | Стабильная кроссплатформенная основа для реализованных контрактов inspection, monitoring, imperative mutation, transactions и declarative apply. Закрывается compatibility audit из 0.21, а не реализацией всех будущих capability-доменов — этот аудит завершён, и 1.0 готова к первому стабильному релизу. |
 
 Ожидается, что каждый этап проверяет архитектуру перед началом следующего;
 более ранние этапы могут повлиять на корректировки более поздних.
@@ -1233,15 +1238,20 @@ Lattice нигде в пути событий не даёт гарантии exa
 публичный контракт требуют независимой проверки. И наоборот, небольшой
 hardening-релиз может быть выпущен между этапами без изменения этого плана.
 
-Текущий фасад предоставляет завершённые read API и imperative mutation для
-routes, addresses и DNS. Этого достаточно, чтобы начать транзакции, но
-недостаточно, чтобы объявить платформу конфигурации стабильной: изменение
-параметров интерфейсов и статических соседей ещё требует собственных
-intent-моделей, а declarative apply должен определяться через явные операции,
-а не через повторное использование observed-объектов как desired state.
+Фасад предоставляет завершённые read API; imperative mutation для routes,
+addresses, DNS, интерфейсов (`InterfaceMutator`/`InterfaceConfig`) и
+статических соседей (`NeighborMutator`/`StaticNeighbor`), каждый со своим
+intent-типом, отдельным от observed state; упорядоченный transaction executor
+(`Lattice::execute_plan`/`execute_apply_plan`); и декларативный слой
+(`DesiredState`, `Diff::compute`, `ApplyPlan::compile`, `Lattice::apply`),
+определённый через явные операции, а не через повторное использование
+observed-объектов как desired state. Это и есть стабильная платформа
+конфигурации, которую требует граница 1.0.
 
 Граница 1.0 намеренно не требует поддержки VLAN, VRF, namespaces или
 firewall. Она требует, чтобы каждый уже заявленный как стабильный API имел
 документированный кроссплатформенный контракт, честное поведение capabilities
 и privileges, bounded-семантику событий, детерминированные transaction reports
-и privileged regression coverage на каждой поддерживаемой платформе.
+и privileged regression coverage на каждой поддерживаемой платформе — см.
+аудированный перечень в разделе «Замороженная публичная поверхность API
+версии 1.0» выше, удовлетворяющий этому требованию.

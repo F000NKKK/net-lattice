@@ -29,7 +29,7 @@ APIs are real public surface. The most valuable contributions right now are:
 
 - Feedback on the project's vision, scope, and roadmap (see [README.md](README.md))
 - Discussion of API design and architecture for upcoming stages
-- Implementation work on the next stages in [ARCHITECTURE.md](ARCHITECTURE.md)'s delivery plan (pre-1.0 hardening, VLAN/VRF/namespace/firewall capability domains, ...)
+- Implementation work on the next stages in [ARCHITECTURE.md](ARCHITECTURE.md)'s delivery plan — pre-1.0 hardening is done (see the "Frozen 1.0 Public API Surface" audit); the next capability domains are VLAN/VRF/namespace/firewall, none of which are prerequisites for 1.0
 - Documentation and tooling improvements
 
 Please read [ARCHITECTURE.md](ARCHITECTURE.md) before proposing a new crate, module, or provider trait — it documents the dependency rules (e.g. `net-lattice-platform` never depends on `net-lattice-model`) and the staged delivery order this project follows.

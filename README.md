@@ -335,9 +335,9 @@ sequential overview rather than a status ledger:
 14. **Stage 0.18: Snapshots** — consistently assembled `CurrentState` with explicit scope, consistency, and partial-read semantics.
 15. **Stage 0.19: Declarative diff** — separate `DesiredState` configuration types and an inspectable `Diff`, without mutation.
 16. **Stage 0.20: Declarative apply** — compile a `Diff` into an `ApplyPlan` and execute it through the transaction engine.
-17. **Stage 0.21: Pre-1.0 hardening** — freeze public contracts, identity and capability rules, event guarantees, platform matrix, and privileged regression coverage.
+17. **Stage 0.21: Pre-1.0 hardening** — done. Public contracts, identity and capability rules, event guarantees, platform matrix, and privileged regression coverage are frozen; see [ARCHITECTURE.md](ARCHITECTURE.md)'s public-API freeze audit.
 18. **Stage 0.22+: Capability domains** — VLAN, VRF, namespaces, and firewall, each with a complete read/intent/mutation/event/capability/test contract. They are not prerequisites for 1.0. Tunnel interface management is out of scope for this repository; see [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) in the ecosystem table above.
-19. **1.0** — stable foundation for the inspection, monitoring, imperative mutation, transaction, and declarative-apply contracts. It is gated by the 0.21 compatibility audit, not by every future network domain.
+19. **1.0** — stable foundation for the inspection, monitoring, imperative mutation, transaction, and declarative-apply contracts. The stage 0.21 compatibility audit that gates it is complete; the first stable `1.0.0` release is ready for publication.
 
 Stages are delivery boundaries, not a promise of one release per heading: platform validation may split a stage, and focused hardening releases may appear between stages. See [CHANGELOG.md](CHANGELOG.md) for what has shipped in each dated release.
 

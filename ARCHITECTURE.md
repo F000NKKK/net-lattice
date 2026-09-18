@@ -5,9 +5,11 @@
 🇺🇸 **English** | 🇷🇺 [Русский](ARCHITECTURE.ru.md)
 
 This document describes the workspace structure for Net Lattice and the
-design principles behind it. Later sections of the Incremental Delivery Plan
-below describe planned, not-yet-built work; see [CHANGELOG.md](CHANGELOG.md)
-and [README.md](README.md) for the dated record of what has shipped.
+design principles behind it. The Incremental Delivery Plan below is
+implemented through its 1.0 row (the stage-0.21 public-API freeze audit that
+gates 1.0 is complete); only the 0.22+ capability-domain rows describe
+planned, not-yet-built work. See [CHANGELOG.md](CHANGELOG.md) and
+[README.md](README.md) for the dated record of what has shipped.
 
 Net Lattice provides, and privileged Linux/Windows/macOS CI verifies:
 `net-lattice-core` and `net-lattice-ip`; `net-lattice-model`'s `route`,
@@ -567,18 +569,17 @@ IP Helper callbacks write to a bounded Tokio channel, and macOS's PF_ROUTE
 reader thread writes directly to that channel. All native async transports use
 the same bounded delivery and resynchronization semantics as `EventReceiver`.
 
-## State Model: Imperative Now, Declarative Later
+## State Model: Imperative and Declarative
 
-Lattice's initial API surface is imperative: `route.add()`, `route.delete()`,
-mirroring what `RouteProvider`/`InterfaceProvider` naturally expose. This is
+Lattice's initial API surface was imperative: `route.add()`, `route.delete()`,
+mirroring what `RouteProvider`/`InterfaceProvider` naturally expose. This was
 deliberate — it is the smallest useful surface and it maps directly onto
 what native platform APIs provide.
 
-However, declarative configuration is a stated long-term goal (see
-README's Long-Term Goals), and it is a different way of using the same
-provider traits, not a different backend contract. Retrofitting it later
-would touch every provider if the concept isn't at least named now. The
-architecture reserves room for it as:
+Declarative configuration was a stated long-term goal and has since shipped
+(stages 0.19-0.20): it is a different way of using the same provider traits,
+not a different backend contract, so it did not require retrofitting every
+provider. The architecture named the concept ahead of implementation as:
 
 - `SnapshotProvider` — a `net-lattice-platform` provider trait (generic over
   an associated `State` type, like the others) that assembles a
@@ -676,18 +677,21 @@ object living alongside its state type in `net-lattice-model` — so that it
 is built in from the first `*Config` type rather than retrofitted after
 `CurrentState`/`DesiredState` have already been conflated into one type.
 
-## Mutation and Event Contract Before Transactions
+## Mutation and Event Contract
 
-The current imperative API is useful, but it is not an atomic configuration
-engine. Stage 0.14 turns the following observed behavior into explicit
-operation metadata before a transaction API can make stronger promises.
+Stage 0.14 turned the following observed per-domain mutation behavior into
+the explicit operation metadata (`Mutation`, `MutationPrecondition`,
+`MutationOutcome`, ...) that the transaction executor (stages 0.15-0.20:
+`Lattice::execute_plan`, `ApplyPlan`, `Lattice::apply`) is built on, rather
+than retroactively claiming atomicity or stronger promises than the native
+sources support.
 
-| Domain | Current mutation contract | Required normalization before declarative apply |
+| Domain | Mutation contract | Normalization applied for declarative apply |
 |---|---|---|
-| Routes | `RouteMutator` adds and removes through native acknowledgements, gated by `Capability::ROUTE_MUTATION` (ADR-0002); mutation input is the distinct `RouteConfig` intent type (ADR-0008), and deletion matching is still platform-specific. | Define duplicate, absent, and ambiguous-match outcomes on top of the now-distinct route intent and operation precondition/match rule. |
-| Interface addresses | `AddressMutator::add_address` returns a re-read `InterfaceAddress`; removal accepts that observed record. IDs are synthesized from interface and network rather than kernel-issued stable identities. | Record identity scope, collision assumptions, and removal preconditions in the operation model. |
-| DNS | `DnsMutator` replaces the portable resolver view and re-reads `DnsConfig`. Unix rewrites the active resolver file and drops directives outside the portable model; Windows changes global search settings and each enumerated adapter through separate calls. | Surface scope, manager ownership, persistence, and partial-application results in the operation report. Do not promise atomic DNS replacement or automatic rollback. |
-| Interface configuration | `InterfaceConfig` is a partial desired patch; `InterfaceMutator` updates administrative state and/or MTU and returns an observed readback. Combined native writes may partially apply. | Retain explicit compensation and eventual native event delivery; broader declarative interface state belongs to later stages. |
+| Routes | `RouteMutator` adds and removes through native acknowledgements, gated by `Capability::ROUTE_MUTATION` (ADR-0002); mutation input is the distinct `RouteConfig` intent type (ADR-0008), and deletion matching is still platform-specific. | Duplicate, absent, and ambiguous-match outcomes are defined via `MutationPrecondition` on top of the distinct route intent and operation match rule. |
+| Interface addresses | `AddressMutator::add_address` returns a re-read `InterfaceAddress`; removal accepts that observed record. IDs are synthesized from interface and network rather than kernel-issued stable identities. | Identity scope, collision assumptions, and removal preconditions are recorded in the operation model. |
+| DNS | `DnsMutator` replaces the portable resolver view and re-reads `DnsConfig`. Unix rewrites the active resolver file and drops directives outside the portable model; Windows changes global search settings and each enumerated adapter through separate calls. | Scope, manager ownership, persistence, and partial-application results are surfaced in the operation report. Atomic DNS replacement or automatic rollback is never promised. |
+| Interface configuration | `InterfaceConfig` is a partial desired patch; `InterfaceMutator` updates administrative state and/or MTU and returns an observed readback. Combined native writes may partially apply. | Explicit compensation and eventual native event delivery are retained; broader declarative interface state now exists as `InterfaceDiff`'s per-field patch-diff shape (stage 0.19). |
 | Neighbors | `NeighborMutator` adds and removes static ARP/NDP entries through `StaticNeighbor` intent, gated by `Capability::NEIGHBOR_MUTATION` (ADR-0001); removal refuses a present but non-`Permanent` entry. | Extend the same intent/mutation pattern to any future neighbor-domain fields; no further normalization required for static entries. |
 
 Every future mutation operation must state: its target identity and matching
@@ -708,7 +712,7 @@ mechanism is:
   IP Helper; it has no neighbor watcher. macOS monitors routes, interfaces,
   neighbors, and addresses through PF_ROUTE.
 
-Stages 0.15–0.20 must build transactions and declarative apply on these
+Stages 0.15-0.20 built transactions and declarative apply on these
 constraints rather than retroactively claiming atomicity or event guarantees
 that the native sources do not provide.
 
@@ -1137,8 +1141,9 @@ in this document.
 The full model above is a target, not a starting point. Crates and modules
 are introduced only when there is real implementation work for them:
 
-Rows through 0.21 are implemented and available today; rows from 0.22 onward
-describe planned, not-yet-built work.
+Rows through 0.21 — and the 1.0 freeze/audit it gates — are implemented and
+available today; only the 0.22+ capability-domain rows describe planned,
+not-yet-built work.
 
 | Stage | Scope |
 |-------|-------|
@@ -1162,9 +1167,9 @@ describe planned, not-yet-built work.
 | 0.18 | Snapshot foundation: `CurrentState` assembled consistently from the implemented providers, with snapshot scope, consistency, and partial-read semantics made explicit. |
 | 0.19 | Declarative model and diff: `DesiredState` configuration types remain distinct from observed types; produce an inspectable `Diff` without applying it. |
 | 0.20 | Declarative apply: compile a `Diff` into an `ApplyPlan`, execute it through the transaction engine, and report convergence, non-convergence, and compensation results. |
-| 0.21 | Pre-1.0 hardening: freeze the core model, provider extension contracts, identity rules, capability meanings, event guarantees, and platform support matrix; complete cross-platform privileged regression coverage and migration guidance. |
+| 0.21 | Pre-1.0 hardening: freeze the core model, provider extension contracts, identity rules, capability meanings, event guarantees, and platform support matrix; complete cross-platform privileged regression coverage and migration guidance. Done — see "Frozen 1.0 Public API Surface" below for the resulting inventory. |
 | 0.22+ | Capability domains, each introduced only with its read model, intent model, mutation semantics, events where the OS supports them, capabilities, and all-platform tests: VLAN first, then VRF, namespaces, and firewall as their platform contracts mature. These domains are not prerequisites for 1.0. Tunnel interface management is out of scope for this repository (see the ecosystem's `tunnel-lattice` crate). |
-| 1.0 | Stable cross-platform foundation for the implemented inspection, monitoring, imperative mutation, transactions, and declarative apply contracts. 1.0 is gated by the 0.21 compatibility audit, not by implementing every future capability domain. |
+| 1.0 | Stable cross-platform foundation for the implemented inspection, monitoring, imperative mutation, transactions, and declarative apply contracts. Gated by the 0.21 compatibility audit, not by implementing every future capability domain — that audit is complete and 1.0 is ready for its first stable release. |
 
 Each stage is expected to validate the architecture before the next is
 started; earlier stages may inform adjustments to later ones.
@@ -1176,15 +1181,20 @@ heading ships in one release. A stage may be split when platform behavior or
 the public contract needs independent validation. Conversely, a small
 hardening release may be issued between stages without changing this plan.
 
-The current facade exposes complete read APIs plus imperative route, address,
-and DNS mutation. That is enough to begin transactions, but not enough to
-declare a stable configuration platform: interface and static-neighbor
-mutation still need their own intent models, and declarative apply must be
+The facade exposes complete read APIs; imperative route, address, DNS,
+interface (`InterfaceMutator`/`InterfaceConfig`), and static-neighbor
+(`NeighborMutator`/`StaticNeighbor`) mutation, each with its own intent type
+distinct from observed state; the ordered transaction executor
+(`Lattice::execute_plan`/`execute_apply_plan`); and the declarative layer
+(`DesiredState`, `Diff::compute`, `ApplyPlan::compile`, `Lattice::apply`)
 defined in terms of explicit operations rather than by reusing observed
-objects as desired state.
+objects as desired state. This is the stable configuration platform the 1.0
+boundary requires.
 
 The 1.0 boundary intentionally does not require VLAN, VRF, namespaces, or
 firewall support. It requires that every API already advertised as
 stable has a documented cross-platform contract, truthful capability and
 privilege behavior, bounded event semantics, deterministic transaction
-reporting, and privileged regression coverage on each supported platform.
+reporting, and privileged regression coverage on each supported platform —
+see "Frozen 1.0 Public API Surface" above for the audited inventory that
+satisfies this requirement.

@@ -94,7 +94,7 @@ an internal facade component until repeated reuse justifies a new crate.
 
 ## Current release and roadmap
 
-Published stage baseline: the `net-lattice 0.18` release line (see
+Published stage baseline: the `net-lattice 0.21` release line (see
 `SECURITY.md`'s supported-version table). Read the current workspace version
 from `crates/net-lattice/Cargo.toml`; do not duplicate a patch version here.
 
@@ -117,13 +117,20 @@ from `crates/net-lattice/Cargo.toml`; do not duplicate a patch version here.
   with explicit scope/consistency/partial-read semantics, plus the
   domain-scoped `net_lattice::model`/`mutation`/`monitoring` re-export
   modules replacing the former crate-root re-export (breaking).
-- 0.19: implemented — `DesiredState` and inspectable `Diff`/`Diff::compute`
-  in `net-lattice-model` (pure, no backend/native dependency), plus the
-  `RouteConfig` route-mutation intent type and the accompanying
-  `RouteMutator` binding change (breaking). Not yet cut as a dated release
-  (still under `[Unreleased]` in `CHANGELOG.md`).
-- 0.20: planned declarative apply through the transaction executor.
-- 0.21: planned pre-1.0 compatibility and hardening audit.
+- 0.19: completed and released (`0.19.1`): `DesiredState` and inspectable
+  `Diff`/`Diff::compute` in `net-lattice-model` (pure, no backend/native
+  dependency), plus the `RouteConfig` route-mutation intent type and the
+  accompanying `RouteMutator` binding change (breaking).
+- 0.20: completed and released (`0.20.0`): declarative apply through the
+  transaction executor — `ApplyPlan::compile`, `Lattice::execute_apply_plan`,
+  and the `Lattice::apply` convenience.
+- 0.21: completed and released (`0.21.0`/`0.21.1`): pre-1.0 compatibility and
+  hardening audit — the `Addition` tier (ADR-0014/`NL-A-16`), `Error`
+  `#[non_exhaustive]` (ADR-0015/`NL-A-17`), the "Frozen 1.0 Public API
+  Surface" inventory in `ARCHITECTURE.md`, and full rustdoc coverage
+  (`#![warn(missing_docs)]` on every crate). The path to `1.0` is closed:
+  the compatibility audit it is gated on is done, and `1.0.0` is ready for
+  its first stable release whenever the user runs the release script.
 
 The completed Stage 0.16/0.17 plan and audit records are maintained as
 internal working-tree evidence. The next-stage planning workspace is
