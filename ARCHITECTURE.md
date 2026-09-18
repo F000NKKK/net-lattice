@@ -757,18 +757,21 @@ attribute.
 The most stable crate; every item below is depended on by every other crate
 in the workspace.
 
-- `Error` (enum; not currently `#[non_exhaustive]` — see note below) and its
-  methods `is_permission_denied`, `is_not_found`, `is_already_exists`,
+- `Error` (`#[non_exhaustive]` enum, per ADR-0015) and its methods
+  `is_permission_denied`, `is_not_found`, `is_already_exists`,
   `is_unsupported`, `is_invalid_state`, `is_disconnected`, `is_platform`.
-- `PlatformErrorCode` (enum; not currently `#[non_exhaustive]`), variants
-  `Linux(i32)`, `Windows(u32)`, `Darwin(i32)`.
+- `PlatformErrorCode` (enum; deliberately **not** `#[non_exhaustive]` — see
+  note below), variants `Linux(i32)`, `Windows(u32)`, `Darwin(i32)`.
 - `Id<T>` (phantom-typed identifier) and its methods `new`, `value`.
 - `Result<T>` (crate-level alias for `core::result::Result<T, Error>`).
 
-Note: unlike almost every enum in `net-lattice-model`/`net-lattice-platform`,
-`Error` and `PlatformErrorCode` are not yet marked `#[non_exhaustive]`.
-Whether to add that attribute before the 1.0 freeze is tracked as its own
-decision, not settled by this inventory.
+Note: `Error` was marked `#[non_exhaustive]` ahead of the 1.0 freeze
+(ADR-0015/`NL-A-17`), bringing it into line with almost every other enum in
+`net-lattice-model`/`net-lattice-platform`. `PlatformErrorCode` was
+deliberately left out of that decision: its three variants (`Linux`,
+`Windows`, `Darwin`) are closed by construction — a fourth OS platform is
+not a realistic addition in the workspace's current roadmap, unlike
+`Error`'s failure-mode variants.
 
 ### `net-lattice-model`
 
@@ -915,10 +918,12 @@ a backend declare about itself" will miss these two methods.
   Result<Self>` on every platform).
 
 This checklist is the reviewable inventory called for by the public-API
-freeze audit; it does not itself change any type's shape or attribute — see
-the "Non-`Capability` backend-declared facts" callout above and the `Error`/
-`PlatformErrorCode` non-exhaustiveness note under `net-lattice-core` for the
-two open follow-up questions it surfaced.
+freeze audit; it does not itself change any type's shape or attribute. It
+surfaced two follow-up questions, both now resolved: the "Non-`Capability`
+backend-declared facts" callout above (frozen with the same discipline as
+`Capability` — no shape change needed), and the `Error`/`PlatformErrorCode`
+non-exhaustiveness question, decided by ADR-0015/`NL-A-17` (`Error` gained
+`#[non_exhaustive]`; `PlatformErrorCode` deliberately did not).
 
 ## Platform Support Matrix and Gaps
 
