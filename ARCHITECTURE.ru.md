@@ -779,19 +779,22 @@ Stages 0.15–0.20 должны строить transactions и declarative apply
 Самый стабильный крейт; от каждого элемента ниже зависит каждый другой
 крейт в workspace.
 
-- `Error` (enum; пока не помечен `#[non_exhaustive]` — см. примечание ниже)
-  и его методы `is_permission_denied`, `is_not_found`, `is_already_exists`,
+- `Error` (enum с `#[non_exhaustive]`, согласно ADR-0015) и его методы
+  `is_permission_denied`, `is_not_found`, `is_already_exists`,
   `is_unsupported`, `is_invalid_state`, `is_disconnected`, `is_platform`.
-- `PlatformErrorCode` (enum; пока не помечен `#[non_exhaustive]`), варианты
-  `Linux(i32)`, `Windows(u32)`, `Darwin(i32)`.
+- `PlatformErrorCode` (enum; намеренно **без** `#[non_exhaustive]` — см.
+  примечание ниже), варианты `Linux(i32)`, `Windows(u32)`, `Darwin(i32)`.
 - `Id<T>` (фантомно-типизированный идентификатор) и его методы `new`,
   `value`.
 - `Result<T>` (псевдоним уровня крейта для `core::result::Result<T, Error>`).
 
-Примечание: в отличие от почти каждого enum в `net-lattice-model`/
-`net-lattice-platform`, `Error` и `PlatformErrorCode` пока не помечены
-атрибутом `#[non_exhaustive]`. Добавлять ли этот атрибут до заморозки 1.0 —
-отдельное решение, не устанавливаемое этим чек-листом.
+Примечание: `Error` был помечен атрибутом `#[non_exhaustive]` перед
+заморозкой 1.0 (ADR-0015/`NL-A-17`), что привело его в соответствие с
+почти каждым другим enum в `net-lattice-model`/`net-lattice-platform`.
+`PlatformErrorCode` намеренно оставлен без этого атрибута: его три
+варианта (`Linux`, `Windows`, `Darwin`) закрыты по построению — четвёртая
+ОС не является реалистичным дополнением в текущей roadmap воркспейса, в
+отличие от вариантов отказа у `Error`.
 
 ### `net-lattice-model`
 
@@ -951,10 +954,12 @@ doc-комментарий `Capability` в поисках "что backend объ
 
 Этот чек-лист — это тот самый рецензируемый инвентарь, который требуется
 аудитом заморозки публичного API; сам по себе он не меняет форму или
-атрибут ни одного типа — см. пометку "Факты, объявляемые backend'ом не
-через `Capability`" выше и примечание о не-`#[non_exhaustive]`-статусе
-`Error`/`PlatformErrorCode` в разделе `net-lattice-core` — это два открытых
-вопроса, которые выявил этот инвентарь.
+атрибут ни одного типа. Он выявил два вопроса, оба теперь решены: пометка
+"Факты, объявляемые backend'ом не через `Capability`" выше (заморожены с
+той же дисциплиной, что и `Capability` — изменение формы не требуется) и
+вопрос о `#[non_exhaustive]`-статусе `Error`/`PlatformErrorCode`, решённый
+в ADR-0015/`NL-A-17` (`Error` получил `#[non_exhaustive]`; `PlatformErrorCode`
+— намеренно нет).
 
 ## Матрица поддержки платформ и пробелы
 
