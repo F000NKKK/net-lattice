@@ -10,7 +10,7 @@ and support for the 0.1.x-0.20.x series has ended (see
 | Version | Supported |
 | ------- | --------- |
 | 0.21.x | ✅ |
-| 0.1.x - 0.21.0 | ❌ |
+| 0.1.x - 0.20.x | ❌ |
 
 ## Reporting a Vulnerability
 

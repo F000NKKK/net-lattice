@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Stage 1.0 prep: documented every remaining public struct/enum field,
+  associated type, trait method, and module across `net-lattice-core`,
+  `net-lattice-ip`, `net-lattice-model`, `net-lattice-platform`, and
+  `net-lattice-backend-linux`, and added `#![warn(missing_docs)]` to all 9
+  workspace crates so full rustdoc coverage is enforced going forward. No
+  public API shape changed.
+
+## [0.21.1] - 2026-08-11
+
 ### Fixed
 
 - `net-lattice::Lattice::<B>::watch_with_additions`: now succeeds when a
