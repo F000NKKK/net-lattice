@@ -145,7 +145,7 @@ impl<B: LatticeBackend> Lattice<B> {
                     }
                     self.validate_one_mutation(operation, &mut accumulators)?;
                 }
-                ApplyStep::ReplaceRoute { old, new } => {
+                ApplyStep::ReplaceRoute { new, .. } => {
                     if !self.supports(Capability::ROUTE_MUTATION) {
                         return Err(Error::Unsupported);
                     }
