@@ -2141,12 +2141,7 @@ mod tests {
         backend
             .runtime
             .block_on(async {
-                let mut links = backend
-                    .handle
-                    .link()
-                    .get()
-                    .match_name("lo")
-                    .execute();
+                let mut links = backend.handle.link().get().match_name("lo").execute();
                 links
                     .try_next()
                     .await
@@ -2180,12 +2175,7 @@ mod tests {
     impl<'a> DummyLinkFixture<'a> {
         fn new(backend: &'a LinuxBackend, name: &str) -> Self {
             let leftover = backend.runtime.block_on(async {
-                let mut links = backend
-                    .handle
-                    .link()
-                    .get()
-                    .match_name(name)
-                    .execute();
+                let mut links = backend.handle.link().get().match_name(name).execute();
                 links.try_next().await.ok().flatten()
             });
             if let Some(leftover) = leftover {
