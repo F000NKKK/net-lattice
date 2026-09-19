@@ -237,8 +237,12 @@ fn compute_routes(current: &[Route], desired: Option<&[RouteConfig]>) -> Vec<Rou
             changes.push(RouteChange::Removed(route.clone()));
         }
     }
-    for (key, config) in &desired_map {
-        if !current_keys.contains(key) {
+    // Preserve caller order for deterministic diffs. The map above still
+    // implements last-one-wins for duplicate keys; only the final occurrence
+    // of each key is emitted.
+    for config in desired {
+        let key = RouteKey::from_config(config);
+        if desired_map.get(&key) == Some(config) && !current_keys.contains(&key) {
             changes.push(RouteChange::Added(*config));
         }
     }
@@ -288,7 +292,15 @@ fn compute_interfaces(
     }
 
     let mut diffs = Vec::new();
-    for (interface_id, config) in desired_map {
+    for config in desired {
+        let interface_id = config.interface_id();
+        // The map implements last-one-wins for duplicate IDs. Skip earlier
+        // duplicates while retaining the caller's ordering for the surviving
+        // entries.
+        if desired_map.get(&interface_id).map(|candidate| *candidate) != Some(config) {
+            continue;
+        }
+
         let Some(observed) = current.iter().find(|iface| iface.id == interface_id) else {
             // Target-missing outcome: not represented in Diff's output.
             continue;
@@ -389,8 +401,14 @@ fn compute_neighbors(
             None => changes.push(NeighborChange::Removed(entry.clone())),
         }
     }
-    for (key, neighbor) in &desired_map {
-        if !matched.contains(key) {
+    // Preserve desired input order while retaining last-one-wins
+    // duplicate semantics from desired_map.
+    for neighbor in desired {
+        let key = NeighborKey {
+            interface_id: neighbor.interface_id,
+            address: neighbor.address,
+        };
+        if desired_map.get(&key) == Some(neighbor) && !matched.contains(&key) {
             changes.push(NeighborChange::Added(*neighbor));
         }
     }
@@ -443,8 +461,14 @@ fn compute_addresses(
             None => changes.push(AddressChange::Removed(observed.clone())),
         }
     }
-    for (key, address) in &desired_map {
-        if !matched.contains(key) {
+    // Preserve desired input order while retaining last-one-wins
+    // duplicate semantics from desired_map.
+    for address in desired {
+        let key = AddressKey {
+            interface_id: address.interface_id,
+            address: address.address,
+        };
+        if desired_map.get(&key) == Some(address) && !matched.contains(&key) {
             changes.push(AddressChange::Added(address.clone()));
         }
     }
