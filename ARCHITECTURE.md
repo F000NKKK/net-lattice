@@ -505,16 +505,16 @@ workspace, expressed as platform-independent variants such as:
 - `Unsupported` — the operation has no meaning on this backend at all (as
   opposed to a `Capability` being absent at runtime; see below).
 - `InvalidState`
-- `PlatformError` — an escape hatch that preserves the raw backend-specific
+- `Platform` — an escape hatch that preserves the raw backend-specific
   error for diagnostics, without being the primary way consumers are
   expected to match on failures.
 
-The exact variant list is an API design decision for the Stage 0.1 draft;
-what this document fixes is that such a taxonomy exists and lives in
-`net-lattice-core`, and that provider trait methods return `Result<T, Error>`
-using it — never a raw OS error type.
+The exact variant list was an API design decision finalized in the Stage 0.1
+draft (see `net-lattice-core::Error`); what this document fixes is that such
+a taxonomy exists and lives in `net-lattice-core`, and that provider trait
+methods return `Result<T, Error>` using it — never a raw OS error type.
 
-**`PlatformError`'s code cannot be a single untyped integer.** Linux errno
+**`Platform`'s code cannot be a single untyped integer.** Linux errno
 is a signed `i32`, Windows error codes are an unsigned `DWORD` (`u32`), and
 collapsing both into one bare `i32`/`u32` field either silently truncates
 one of them or gives a false impression that codes are comparable across
@@ -1127,8 +1127,11 @@ in this document.
   dependency.
 - **No command-line interface.** Consistent with the project's non-goals in
   [README.md](README.md), no `net-lattice-cli` crate is planned.
-- **No premature crate creation.** Crates for future domains (VLAN, VRF,
-  firewall, declarative configuration, transactional apply/rollback) are
+- **No premature crate creation.** Declarative configuration and
+  transactional apply/rollback have since shipped (stages 0.19-0.20) as
+  modules inside existing crates (`net-lattice-model`, `net-lattice`), per
+  the Crate Boundary vs. Module Boundary rule above, not as new crates.
+  Crates for the remaining future domains (VLAN, VRF, firewall) are
   described in the roadmap below but are not created until there is actual
   code to put in them.
 - **No tunnel interface management.** TUN/TAP tunnel interfaces are the
