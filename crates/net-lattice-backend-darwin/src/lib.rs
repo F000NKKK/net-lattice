@@ -112,6 +112,7 @@ pub struct DarwinBackend {
 }
 
 impl DarwinBackend {
+        /// Creates a macOS PF_ROUTE-backed network backend.
     pub fn new() -> Result<Self> {
         let runtime =
             tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;

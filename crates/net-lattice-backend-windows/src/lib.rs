@@ -86,6 +86,7 @@ pub struct WindowsBackend {
 }
 
 impl WindowsBackend {
+        /// Creates a Windows IP Helper backend and initializes its internal runtime.
     pub fn new() -> Result<Self> {
         let runtime =
             tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;
