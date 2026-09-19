@@ -2201,7 +2201,7 @@ mod tests {
                         .handle
                         .link()
                         .get()
-                        .match_name(name.into())
+                        .match_name(name)
                         .execute();
                     links.try_next().await.ok().flatten()
                 })
