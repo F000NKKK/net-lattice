@@ -149,12 +149,7 @@ impl<B: LatticeBackend> Lattice<B> {
                     if !self.supports(Capability::ROUTE_MUTATION) {
                         return Err(Error::Unsupported);
                     }
-                    if !self.backend.supports_route_metric()
-                        && old.gateway == new.gateway
-                        && old.interface_index == new.interface_index
-                        && new.metric.is_some()
-                        && old.metric != new.metric
-                    {
+                    if !self.backend.supports_route_metric() && new.metric.is_some() {
                         return Err(Error::Unsupported);
                     }
                 }
