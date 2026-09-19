@@ -370,6 +370,17 @@ fn validate_route_family(route: &RouteConfig) -> Result<()> {
     Ok(())
 }
 
+fn validate_route_family(route: &RouteConfig) -> Result<()> {
+    if let Some(gateway) = route.gateway {
+        let destination_is_v4 = matches!(route.destination, Network::V4(_));
+        let gateway_is_v4 = matches!(gateway, IpAddress::V4(_));
+        if destination_is_v4 != gateway_is_v4 {
+            return Err(Error::InvalidState);
+        }
+    }
+    Ok(())
+}
+
 impl RouteProvider for LinuxBackend {
     type Route = Route;
 
@@ -423,6 +434,7 @@ impl RouteMutator for LinuxBackend {
     }
 
     fn remove_route(&self, route: Self::RouteConfig) -> Result<()> {
+        validate_route_family(&route)?;
         self.runtime.block_on(async {
             let message = route_request_message(&route, false);
 
