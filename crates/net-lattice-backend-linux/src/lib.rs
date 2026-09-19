@@ -359,6 +359,17 @@ fn network_to_std(network: Network) -> (IpAddr, u8) {
     }
 }
 
+fn validate_route_family(route: &RouteConfig) -> Result<()> {
+    if let Some(gateway) = route.gateway {
+        let destination_is_v4 = matches!(route.destination, Network::V4(_));
+        let gateway_is_v4 = matches!(gateway, IpAddress::V4(_));
+        if destination_is_v4 != gateway_is_v4 {
+            return Err(Error::InvalidState);
+        }
+    }
+    Ok(())
+}
+
 impl RouteProvider for LinuxBackend {
     type Route = Route;
 
@@ -398,6 +409,7 @@ impl RouteMutator for LinuxBackend {
     type RouteConfig = RouteConfig;
 
     fn add_route(&self, route: Self::RouteConfig) -> Result<()> {
+        validate_route_family(&route)?;
         self.runtime.block_on(async {
             let message = route_request_message(&route, true);
 
@@ -411,6 +423,7 @@ impl RouteMutator for LinuxBackend {
     }
 
     fn remove_route(&self, route: Self::RouteConfig) -> Result<()> {
+        validate_route_family(&route)?;
         self.runtime.block_on(async {
             let message = route_request_message(&route, false);
 
@@ -2117,12 +2130,7 @@ mod tests {
         backend
             .runtime
             .block_on(async {
-                let mut links = backend
-                    .handle
-                    .link()
-                    .get()
-                    .match_name("lo".into())
-                    .execute();
+                let mut links = backend.handle.link().get().match_name("lo").execute();
                 links
                     .try_next()
                     .await
@@ -2156,12 +2164,7 @@ mod tests {
     impl<'a> DummyLinkFixture<'a> {
         fn new(backend: &'a LinuxBackend, name: &str) -> Self {
             let leftover = backend.runtime.block_on(async {
-                let mut links = backend
-                    .handle
-                    .link()
-                    .get()
-                    .match_name(name.into())
-                    .execute();
+                let mut links = backend.handle.link().get().match_name(name).execute();
                 links.try_next().await.ok().flatten()
             });
             if let Some(leftover) = leftover {
