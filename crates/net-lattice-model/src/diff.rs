@@ -297,7 +297,7 @@ fn compute_interfaces(
         // The map implements last-one-wins for duplicate IDs. Skip earlier
         // duplicates while retaining the caller's ordering for the surviving
         // entries.
-        if desired_map.get(&interface_id).map(|candidate| *candidate) != Some(config) {
+        if desired_map.get(&interface_id).copied() != Some(config) {
             continue;
         }
 
