@@ -168,6 +168,17 @@ fn network_to_std(network: Network) -> (IpAddr, u8) {
     }
 }
 
+fn validate_route_family(route: &RouteConfig) -> Result<()> {
+    if let Some(gateway) = route.gateway {
+        let destination_is_v4 = matches!(route.destination, Network::V4(_));
+        let gateway_is_v4 = matches!(gateway, IpAddress::V4(_));
+        if destination_is_v4 != gateway_is_v4 {
+            return Err(Error::InvalidState);
+        }
+    }
+    Ok(())
+}
+
 /// Reads the address out of a `SOCKADDR_INET` union, dispatching on its
 /// `si_family` tag. Returns `None` for `AF_UNSPEC` (used by `NextHop` to mean
 /// "no gateway, on-link route").
@@ -382,6 +393,7 @@ impl RouteMutator for WindowsBackend {
     type RouteConfig = RouteConfig;
 
     fn add_route(&self, route: Self::RouteConfig) -> Result<()> {
+        validate_route_family(&route)?;
         self.runtime.block_on(async move {
             let row = build_row(route);
             unsafe {
