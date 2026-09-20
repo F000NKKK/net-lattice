@@ -25,11 +25,13 @@ and a breaking change will require an explicit major version bump.
   `net-lattice-backend-linux`, and added `#![warn(missing_docs)]` to all 9
   workspace crates so full rustdoc coverage is enforced going forward. No
   public API shape changed from `0.21.1`.
-- VLAN, VRF, network namespaces, and firewall integration remain explicitly
-  out of scope for `1.0.0` (stage 0.22+): namespaces are not symmetric
-  across Linux/Windows/macOS and firewall requires a per-platform mechanism
-  and abstraction-depth decision, so both need their own architecture pass
-  before implementation starts. See `ARCHITECTURE.md`'s Incremental
+- VLAN, VRF, and network namespaces remain explicitly out of scope for
+  `1.0.0`, deferred to the post-1.0 (`2.0+`) line rather than a pre-1.0
+  stage: namespaces are not symmetric across Linux/Windows/macOS, and all
+  three need their own architecture pass before implementation starts.
+  Firewall (stage 0.22) was originally grouped with these but has since
+  shipped ahead of `1.0.0` — see the firewall entry under `[Unreleased]`
+  below (pending its own version) and `ARCHITECTURE.md`'s Incremental
   Delivery Plan.
 
 ## [Unreleased]

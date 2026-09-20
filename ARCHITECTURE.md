@@ -6,9 +6,10 @@
 
 This document describes the workspace structure for Net Lattice and the
 design principles behind it. The Incremental Delivery Plan below is
-implemented through its 1.0 row (the stage-0.21 public-API freeze audit that
-gates 1.0 is complete); only the 0.22+ capability-domain rows describe
-planned, not-yet-built work. See [CHANGELOG.md](CHANGELOG.md) and
+implemented through its 0.22 row (firewall) and the 1.0 row (the stage-0.21
+public-API freeze audit that gates 1.0 is complete); only the post-1.0
+capability-domain rows (VLAN, VRF, namespaces) describe planned,
+not-yet-built work. See [CHANGELOG.md](CHANGELOG.md) and
 [README.md](README.md) for the dated record of what has shipped.
 
 Net Lattice provides, and privileged Linux/Windows/macOS CI verifies:
@@ -1131,7 +1132,7 @@ in this document.
   transactional apply/rollback have since shipped (stages 0.19-0.20) as
   modules inside existing crates (`net-lattice-model`, `net-lattice`), per
   the Crate Boundary vs. Module Boundary rule above, not as new crates.
-  Crates for the remaining future domains (VLAN, VRF, firewall) are
+  Crates for the remaining future domains (VLAN, VRF, namespaces) are
   described in the roadmap below but are not created until there is actual
   code to put in them.
 - **No tunnel interface management.** TUN/TAP tunnel interfaces are the
@@ -1144,9 +1145,9 @@ in this document.
 The full model above is a target, not a starting point. Crates and modules
 are introduced only when there is real implementation work for them:
 
-Rows through 0.21 — and the 1.0 freeze/audit it gates — are implemented and
-available today; only the 0.22+ capability-domain rows describe planned,
-not-yet-built work.
+Rows through 0.22 (firewall) — and the 1.0 freeze/audit it gates — are
+implemented and available today; only the post-1.0 capability-domain rows
+(VLAN, VRF, namespaces) describe planned, not-yet-built work.
 
 | Stage | Scope |
 |-------|-------|
@@ -1171,8 +1172,9 @@ not-yet-built work.
 | 0.19 | Declarative model and diff: `DesiredState` configuration types remain distinct from observed types; produce an inspectable `Diff` without applying it. |
 | 0.20 | Declarative apply: compile a `Diff` into an `ApplyPlan`, execute it through the transaction engine, and report convergence, non-convergence, and compensation results. |
 | 0.21 | Pre-1.0 hardening: freeze the core model, provider extension contracts, identity rules, capability meanings, event guarantees, and platform support matrix; complete cross-platform privileged regression coverage and migration guidance. Done — see "Frozen 1.0 Public API Surface" below for the resulting inventory. |
-| 0.22+ | Capability domains, each introduced only with its read model, intent model, mutation semantics, events where the OS supports them, capabilities, and all-platform tests: VLAN first, then VRF, namespaces, and firewall as their platform contracts mature. These domains are not prerequisites for 1.0. Tunnel interface management is out of scope for this repository (see the ecosystem's `tunnel-lattice` crate). |
-| 1.0 | Stable cross-platform foundation for the implemented inspection, monitoring, imperative mutation, transactions, and declarative apply contracts. Gated by the 0.21 compatibility audit, not by implementing every future capability domain — that audit is complete and 1.0 is ready for its first stable release. |
+| 0.22 | Firewall: `FirewallRule`/`FirewallPolicy` model, `FirewallProvider`/`FirewallMutator` platform contract, and native backends on Linux (nftables via `nftnl`), Windows (WFP), and macOS (`pf` via raw `/dev/pf` ioctl) — each verified with a passing privileged native round-trip test on its own platform's CI runner. See ADR-0017 (`NL-A-19`). Done. |
+| 1.0 | Stable cross-platform foundation for the implemented inspection, monitoring, imperative mutation, transactions, declarative apply, and firewall contracts. Gated by the 0.21 compatibility audit, not by implementing every future capability domain — that audit is complete and 1.0 is ready for its first stable release. |
+| 2.0+ | Remaining capability domains, each introduced only with its read model, intent model, mutation semantics, events where the OS supports them, capabilities, and all-platform tests: VLAN, VRF, and namespaces. Deferred to the post-1.0 line rather than a pre-1.0 stage, since none are prerequisites for 1.0 and each is independently large enough to warrant its own major-line design pass. Tunnel interface management is out of scope for this repository (see the ecosystem's `tunnel-lattice` crate). |
 
 Each stage is expected to validate the architecture before the next is
 started; earlier stages may inform adjustments to later ones.
@@ -1194,10 +1196,13 @@ defined in terms of explicit operations rather than by reusing observed
 objects as desired state. This is the stable configuration platform the 1.0
 boundary requires.
 
-The 1.0 boundary intentionally does not require VLAN, VRF, namespaces, or
-firewall support. It requires that every API already advertised as
-stable has a documented cross-platform contract, truthful capability and
-privilege behavior, bounded event semantics, deterministic transaction
-reporting, and privileged regression coverage on each supported platform —
-see "Frozen 1.0 Public API Surface" above for the audited inventory that
-satisfies this requirement.
+The 1.0 boundary intentionally does not require VLAN, VRF, or namespace
+support — those are deferred to the post-1.0 (2.0+) line. Firewall support
+(stage 0.22) landed before 1.0 as a complete, independently verified
+capability domain, but was never a 1.0 prerequisite either; the boundary
+requires only that every API already advertised as stable has a documented
+cross-platform contract, truthful capability and privilege behavior,
+bounded event semantics, deterministic transaction reporting, and
+privileged regression coverage on each supported platform — see "Frozen 1.0
+Public API Surface" above for the audited inventory that satisfies this
+requirement.
