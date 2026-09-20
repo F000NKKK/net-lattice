@@ -750,6 +750,26 @@ impl FirewallMutator for WindowsBackend {
 mod tests {
     use super::*;
 
+    /// Every privileged test below reads or replaces the *same* managed
+    /// provider/sublayer's filters, unlike `lib.rs`'s route/address/
+    /// neighbor privileged tests (each on a distinct object). Rust's
+    /// default test harness runs tests in parallel threads within one
+    /// process, so without this guard two of these tests race on that
+    /// shared engine state and produce exactly the kind of order-dependent,
+    /// cross-test-contaminated failures a real CI run surfaced before this
+    /// guard was added (one test observing another's rules). Every
+    /// `#[ignore]`-gated test below takes this guard as its first
+    /// statement. Scoped to this module only — it does not need to
+    /// serialize against `lib.rs`'s own `windows_test_guard`, since no
+    /// firewall test touches a route, address, or neighbor.
+    fn firewall_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        GUARD
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     #[test]
     fn ok_or_platform_error_maps_nonzero_status_to_an_error() {
         assert!(ok_or_platform_error(0).is_ok());
@@ -955,6 +975,7 @@ mod tests {
     #[test]
     #[ignore]
     fn set_then_clear_firewall_policy_round_trips_through_the_engine() {
+        let _guard = firewall_test_guard();
         use net_lattice_ip::{
             Ipv4Address, Ipv4Network, Ipv4PrefixLength, Ipv6Address, Ipv6Network, Ipv6PrefixLength,
         };
@@ -1015,6 +1036,7 @@ mod tests {
     #[test]
     #[ignore]
     fn empty_firewall_policy_round_trips_through_the_engine() {
+        let _guard = firewall_test_guard();
         let backend = WindowsBackend::new().expect("create backend");
 
         backend
@@ -1036,6 +1058,7 @@ mod tests {
     #[test]
     #[ignore]
     fn replacing_a_firewall_policy_discards_the_previous_rules() {
+        let _guard = firewall_test_guard();
         let backend = WindowsBackend::new().expect("create backend");
 
         let first = FirewallPolicy::new(Verdict::Allow).with_rule(
