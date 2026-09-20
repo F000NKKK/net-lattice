@@ -872,4 +872,76 @@ mod tests {
                 .is_empty()
         );
     }
+
+    /// Requires `CAP_NET_ADMIN`; not run by default, same as this module's
+    /// other privileged tests.
+    ///
+    /// A policy with no rules at all (only a chain-policy default verdict)
+    /// exercises `apply_policy`'s rule-loop with zero iterations and
+    /// `read_chain_rules`'s dump-with-no-`NEWRULE`-replies path (an
+    /// immediate `NLMSG_DONE`) on both chains — neither is exercised by the
+    /// six-rule policy the other privileged test in this module applies.
+    #[test]
+    #[ignore = "requires CAP_NET_ADMIN; run with `sudo -E cargo test -p net-lattice-backend-linux -- --ignored`"]
+    fn empty_firewall_policy_round_trips_through_the_kernel() {
+        let backend = LinuxBackend::new().expect("failed to open a Netlink connection");
+
+        let empty = FirewallPolicy::new(Verdict::Deny);
+        let set_result = backend.set_firewall_policy(empty);
+        if matches!(
+            set_result,
+            Err(Error::PermissionDenied) | Err(Error::Platform(_))
+        ) {
+            set_result.expect("set_firewall_policy failed - are you running with CAP_NET_ADMIN?");
+        }
+
+        assert!(
+            backend
+                .firewall_rules()
+                .expect("firewall_rules() failed for an empty policy")
+                .is_empty()
+        );
+
+        let _ = backend.clear_firewall_policy();
+    }
+
+    /// Requires `CAP_NET_ADMIN`; not run by default, same as this module's
+    /// other privileged tests.
+    ///
+    /// Applies one policy, then a second, entirely different policy, and
+    /// confirms `firewall_rules()` reflects only the second — exercising
+    /// `apply_policy`'s flush-then-add sequence against a chain that
+    /// already holds real (non-default) rules from a previous call, not
+    /// only against a freshly created, empty chain the way every other
+    /// test in this module does.
+    #[test]
+    #[ignore = "requires CAP_NET_ADMIN; run with `sudo -E cargo test -p net-lattice-backend-linux -- --ignored`"]
+    fn replacing_a_firewall_policy_discards_the_previous_rules() {
+        let backend = LinuxBackend::new().expect("failed to open a Netlink connection");
+
+        let first = FirewallPolicy::new(Verdict::Allow).with_rule(
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_protocol(Protocol::Tcp),
+        );
+        let set_result = backend.set_firewall_policy(first);
+        if matches!(
+            set_result,
+            Err(Error::PermissionDenied) | Err(Error::Platform(_))
+        ) {
+            set_result.expect("set_firewall_policy failed - are you running with CAP_NET_ADMIN?");
+        }
+
+        let second = FirewallPolicy::new(Verdict::Deny).with_rule(
+            FirewallRule::new(Direction::Inbound, Verdict::Allow).with_protocol(Protocol::Udp),
+        );
+        backend
+            .set_firewall_policy(second.clone())
+            .expect("second set_firewall_policy failed");
+
+        let observed = backend
+            .firewall_rules()
+            .expect("firewall_rules() failed after replacing the policy");
+        assert_eq!(observed, second.rules);
+
+        let _ = backend.clear_firewall_policy();
+    }
 }

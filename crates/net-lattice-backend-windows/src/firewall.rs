@@ -1003,4 +1003,57 @@ mod tests {
         backend.clear_firewall_policy().expect("clear policy");
         assert!(backend.firewall_rules().unwrap().is_empty());
     }
+
+    /// Requires running as Administrator; not run by default, same as this
+    /// module's other privileged tests.
+    ///
+    /// A policy with no rules at all (just the four default-verdict
+    /// catch-all filters) exercises `apply_policy`'s rule loop with zero
+    /// iterations and `read_layer_rules`'s enumerate-nothing-real path on
+    /// every layer — neither is exercised by the six-rule policy the other
+    /// privileged test in this module applies.
+    #[test]
+    #[ignore]
+    fn empty_firewall_policy_round_trips_through_the_engine() {
+        let backend = WindowsBackend::new().expect("create backend");
+
+        backend
+            .set_firewall_policy(FirewallPolicy::new(Verdict::Deny))
+            .expect("apply empty policy");
+        assert!(backend.firewall_rules().unwrap().is_empty());
+
+        backend.clear_firewall_policy().expect("clear policy");
+    }
+
+    /// Requires running as Administrator; not run by default, same as this
+    /// module's other privileged tests.
+    ///
+    /// Applies one policy, then a second, entirely different policy, and
+    /// confirms `firewall_rules()` reflects only the second — exercising
+    /// `flush_layer`'s delete loop against layers that already hold real
+    /// (non-default) filters from a previous call, not only the
+    /// already-empty layers every other test in this module starts from.
+    #[test]
+    #[ignore]
+    fn replacing_a_firewall_policy_discards_the_previous_rules() {
+        let backend = WindowsBackend::new().expect("create backend");
+
+        let first = FirewallPolicy::new(Verdict::Allow).with_rule(
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_protocol(Protocol::Tcp),
+        );
+        backend
+            .set_firewall_policy(first)
+            .expect("first apply policy");
+
+        let second = FirewallPolicy::new(Verdict::Deny).with_rule(
+            FirewallRule::new(Direction::Inbound, Verdict::Allow).with_protocol(Protocol::Udp),
+        );
+        backend
+            .set_firewall_policy(second.clone())
+            .expect("second apply policy");
+
+        assert_eq!(backend.firewall_rules().unwrap(), second.rules);
+
+        backend.clear_firewall_policy().expect("clear policy");
+    }
 }
