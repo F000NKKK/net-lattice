@@ -5,12 +5,9 @@
 🇺🇸 [English](ARCHITECTURE.md) | 🇷🇺 **Русский**
 
 Этот документ описывает структуру workspace Net Lattice и принципы дизайна,
-лежащие в её основе. План поэтапной поставки ниже реализован вплоть до
-строки 0.22 (firewall) и строки 1.0 включительно (аудит заморозки публичного
-API стадии 0.21, закрывающий 1.0, завершён); только строки доменов Capability
-после 1.0 (VLAN, VRF, namespaces) описывают ещё не реализованную,
-планируемую работу. См. [CHANGELOG.md](CHANGELOG.md) и
-[README.ru.md](README.ru.md) для датированной записи о том, что уже вышло.
+лежащие в её основе. `1.0` — текущая стабильная линия; см. раздел «Дорожная
+карта» ниже о том, что запланировано на 2.0+, и [CHANGELOG.md](CHANGELOG.md)
+для датированной записи о том, что уже вышло.
 
 Net Lattice предоставляет, и privileged CI на Linux/Windows/macOS проверяет:
 `net-lattice-core` и `net-lattice-ip`; модули `route`, `interface`, `dns`,
@@ -35,9 +32,9 @@ feature-gated async-фасад. Capabilities мониторинга завися
 aggregate-бит `MONITORING` означает native-путь доставки для каждого текущего
 домена, а filtered watch требует выбранный бит route/interface/neighbor/address.
 В Windows нет native callback изменений соседей, поэтому neighbor и
-all-domain subscriptions отклоняются. Полный список этапов см. в таблице
-плана поэтапной поставки ниже, а подробности по каждому релизу — в
-[CHANGELOG.md](CHANGELOG.md)/[README.ru.md](README.ru.md).
+all-domain subscriptions отклоняются. Полный аудированный перечень — в
+разделе «Замороженная публичная поверхность API версии 1.0» ниже, детали по
+каждому релизу — в [CHANGELOG.md](CHANGELOG.md).
 
 ## Руководящий принцип
 
