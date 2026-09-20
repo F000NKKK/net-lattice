@@ -31,7 +31,24 @@ and a breaking change will require an explicit major version bump.
   three need their own architecture pass before implementation starts.
   Firewall (stage 0.22) was originally grouped with these but has since
   shipped ahead of `1.0.0` — see the `[0.22.0]` entry below and
-  `ARCHITECTURE.md`'s Incremental Delivery Plan.
+  `ARCHITECTURE.md`'s Roadmap.
+- Firewall integrated into the transactional/declarative system:
+  `net-lattice-model::mutation::{Mutation::SetFirewallPolicy,
+  MutationSnapshot::Firewall, MutationKind::SetFirewallPolicy}`,
+  `snapshot::CurrentState::firewall_rules`,
+  `desired_state::DesiredState::firewall`/`with_firewall`,
+  `diff::{Diff::firewall, FirewallChange, compute_firewall}`, and
+  `apply::ApplyPlan::compile` lowering a firewall diff to
+  `Mutation::SetFirewallPolicy`. The `net-lattice` facade's
+  `validate_plan`/`execute_plan`/`snapshot_for_mutation`/`apply` now cover
+  firewall the same way they cover every other domain, gated by
+  `Capability::FIREWALL_MUTATION`. No separate `ClearFirewallPolicy`
+  mutation exists: `clear_firewall_policy()` remains sugar for
+  `set_firewall_policy(FirewallPolicy::new(Verdict::Allow))` on every
+  backend. Because no backend's `firewall_rules()` exposes the active
+  default verdict, `Mutation::SetFirewallPolicy`'s reversibility is
+  `NotGuaranteed`, not `RequiresPriorState`. `net_lattice::mutation` now
+  also re-exports `FirewallChange`.
 
 ## [0.22.0] - 2026-09-20
 
