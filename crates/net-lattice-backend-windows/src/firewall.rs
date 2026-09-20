@@ -37,13 +37,29 @@
 //! flushes every existing filter owned by this crate's provider GUID (by
 //! enumerating and deleting them, per layer) inside one WFP transaction, so
 //! a caller never observes a partially-applied policy.
+//!
+//! [`FirewallProvider::firewall_rules`] reads every managed filter directly
+//! from the engine (`FwpmFilterEnum0`, scoped to this crate's provider GUID,
+//! per layer) rather than serving a cached copy of the last-applied policy,
+//! so it reflects out-of-band changes. Because a rule's weight is assigned
+//! once from its position in the caller's original flat rule list
+//! (regardless of direction — see `rule_weight`), merging decoded filters
+//! by descending weight across all four layers reconstructs the caller's
+//! exact original order, including interleaved directions — unlike the
+//! Linux backend, which stores `inbound`/`outbound` as separate nftables
+//! chains and can only preserve order within each direction.
 
 use net_lattice_core::{Error, PlatformErrorCode, Result};
+use net_lattice_ip::{Ipv4Network, Ipv4PrefixLength, Ipv6Network, Ipv6PrefixLength};
 use net_lattice_model::Network;
-use net_lattice_model::firewall::{Direction, FirewallPolicy, FirewallRule, Protocol, Verdict};
+use net_lattice_model::firewall::{
+    Direction, FirewallPolicy, FirewallRule, PortRange, Protocol, Verdict,
+};
 use net_lattice_platform::{FirewallMutator, FirewallProvider};
 use windows::Win32::Foundation::{FWP_E_ALREADY_EXISTS, HANDLE};
-use windows::Win32::NetworkManagement::IpHelper::ConvertInterfaceIndexToLuid;
+use windows::Win32::NetworkManagement::IpHelper::{
+    ConvertInterfaceIndexToLuid, ConvertInterfaceLuidToIndex,
+};
 use windows::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 use windows::Win32::NetworkManagement::WindowsFilteringPlatform::{
     FWP_ACTION_BLOCK, FWP_ACTION_PERMIT, FWP_CONDITION_VALUE0, FWP_CONDITION_VALUE0_0, FWP_EMPTY,
@@ -156,6 +172,21 @@ fn protocol_number(protocol: Protocol, is_v6_layer: bool) -> u8 {
             }
         }
         _ => unreachable!("Protocol is non_exhaustive; every current variant is handled above"),
+    }
+}
+
+/// The inverse of [`protocol_number`]: both ICMP numbers (v4 and v6) decode
+/// to [`Protocol::Icmp`], since the model doesn't distinguish them.
+fn protocol_from_number(number: u8) -> Option<Protocol> {
+    const IPPROTO_ICMP: u8 = 1;
+    const IPPROTO_ICMPV6: u8 = 58;
+    const IPPROTO_TCP: u8 = 6;
+    const IPPROTO_UDP: u8 = 17;
+    match number {
+        IPPROTO_TCP => Some(Protocol::Tcp),
+        IPPROTO_UDP => Some(Protocol::Udp),
+        IPPROTO_ICMP | IPPROTO_ICMPV6 => Some(Protocol::Icmp),
+        _ => None,
     }
 }
 
@@ -441,6 +472,148 @@ fn flush_layer(engine: HANDLE, layer: GUID) -> Result<()> {
     Ok(())
 }
 
+/// Decodes one enumerated filter's conditions back into a [`FirewallRule`],
+/// paired with its weight (used by [`WindowsBackend::firewall_rules`] to
+/// reconstruct the original policy's rule order — see the module doc
+/// comment). Returns `None` for the weight-0 default-verdict catch-all
+/// filter (not a caller-authored rule) or an unrecognized action type;
+/// every other unrecognized condition is skipped rather than failing the
+/// whole decode, so a future filter shape degrades gracefully.
+fn decode_filter(filter: &FWPM_FILTER0, direction: Direction) -> Option<(u8, FirewallRule)> {
+    if filter.weight.r#type != FWP_UINT8 {
+        return None;
+    }
+    let weight = unsafe { filter.weight.Anonymous.uint8 };
+    if weight == 0 {
+        return None;
+    }
+
+    let verdict = if filter.action.r#type == FWP_ACTION_PERMIT {
+        Verdict::Allow
+    } else if filter.action.r#type == FWP_ACTION_BLOCK {
+        Verdict::Deny
+    } else {
+        return None;
+    };
+
+    let mut rule = FirewallRule::new(direction, verdict);
+    let conditions = unsafe {
+        std::slice::from_raw_parts(filter.filterCondition, filter.numFilterConditions as usize)
+    };
+    for condition in conditions {
+        if condition.fieldKey == FWPM_CONDITION_IP_LOCAL_INTERFACE {
+            if condition.conditionValue.r#type == FWP_UINT64 {
+                let luid_ptr = unsafe { condition.conditionValue.Anonymous.uint64 };
+                if let Some(&luid_value) = unsafe { luid_ptr.as_ref() } {
+                    let luid = NET_LUID_LH { Value: luid_value };
+                    let mut index = 0u32;
+                    let status = unsafe { ConvertInterfaceLuidToIndex(&luid, &mut index) };
+                    if status.0 == 0 {
+                        rule = rule.with_interface_index(index);
+                    }
+                }
+            }
+        } else if condition.fieldKey == FWPM_CONDITION_IP_REMOTE_ADDRESS {
+            if condition.conditionValue.r#type == FWP_V4_ADDR_MASK {
+                let ptr = unsafe { condition.conditionValue.Anonymous.v4AddrMask };
+                if let Some(v4) = unsafe { ptr.as_ref() }
+                    && let Some(prefix) = Ipv4PrefixLength::new(v4.mask.leading_ones() as u8)
+                {
+                    let addr = std::net::Ipv4Addr::from(v4.addr.to_be_bytes());
+                    rule = rule.with_remote(Network::V4(Ipv4Network::new(addr.into(), prefix)));
+                }
+            } else if condition.conditionValue.r#type == FWP_V6_ADDR_MASK {
+                let ptr = unsafe { condition.conditionValue.Anonymous.v6AddrMask };
+                if let Some(v6) = unsafe { ptr.as_ref() }
+                    && let Some(prefix) = Ipv6PrefixLength::new(v6.prefixLength)
+                {
+                    let addr = std::net::Ipv6Addr::from(v6.addr);
+                    rule = rule.with_remote(Network::V6(Ipv6Network::new(addr.into(), prefix)));
+                }
+            }
+        } else if condition.fieldKey == FWPM_CONDITION_IP_PROTOCOL {
+            if condition.conditionValue.r#type == FWP_UINT8 {
+                let number = unsafe { condition.conditionValue.Anonymous.uint8 };
+                if let Some(protocol) = protocol_from_number(number) {
+                    rule = rule.with_protocol(protocol);
+                }
+            }
+        } else if condition.fieldKey == FWPM_CONDITION_IP_REMOTE_PORT {
+            if condition.conditionValue.r#type == FWP_UINT16 {
+                let port = unsafe { condition.conditionValue.Anonymous.uint16 };
+                rule = rule.with_port(PortRange::single(port));
+            } else if condition.conditionValue.r#type == FWP_RANGE_TYPE {
+                let ptr = unsafe { condition.conditionValue.Anonymous.rangeValue };
+                if let Some(range) = unsafe { ptr.as_ref() } {
+                    let low = unsafe { range.valueLow.Anonymous.uint16 };
+                    let high = unsafe { range.valueHigh.Anonymous.uint16 };
+                    rule = rule.with_port(PortRange::new(low, high));
+                }
+            }
+        }
+    }
+
+    Some((weight, rule))
+}
+
+/// Enumerates every filter this crate's provider owns on `layer` and
+/// decodes it via [`decode_filter`].
+fn read_layer_rules(
+    engine: HANDLE,
+    direction: Direction,
+    is_v6: bool,
+) -> Result<Vec<(u8, FirewallRule)>> {
+    let mut provider_key = PROVIDER_KEY;
+    let layer = layer_key(direction, is_v6);
+    let template = FWPM_FILTER_ENUM_TEMPLATE0 {
+        providerKey: &mut provider_key,
+        layerKey: layer,
+        enumType: FWP_FILTER_ENUM_OVERLAPPING,
+        flags: 0,
+        providerContextTemplate: std::ptr::null_mut(),
+        numFilterConditions: 0,
+        filterCondition: std::ptr::null_mut(),
+        actionMask: 0xFFFF_FFFF,
+        calloutKey: std::ptr::null_mut(),
+    };
+
+    let mut enum_handle = HANDLE::default();
+    let status = unsafe { FwpmFilterCreateEnumHandle0(engine, Some(&template), &mut enum_handle) };
+    ok_or_platform_error(status)?;
+
+    let mut decoded = Vec::new();
+    loop {
+        let mut entries: *mut *mut FWPM_FILTER0 = std::ptr::null_mut();
+        let mut returned = 0u32;
+        let status =
+            unsafe { FwpmFilterEnum0(engine, enum_handle, 128, &mut entries, &mut returned) };
+        if status != 0 {
+            unsafe {
+                let _ = FwpmFilterDestroyEnumHandle0(engine, enum_handle);
+            }
+            return Err(Error::Platform(wfp_error_code(status)));
+        }
+        if returned == 0 {
+            break;
+        }
+        for i in 0..returned as isize {
+            let entry = unsafe { *entries.offset(i) };
+            if let Some(filter) = unsafe { entry.as_ref() }
+                && let Some(pair) = decode_filter(filter, direction)
+            {
+                decoded.push(pair);
+            }
+        }
+        if returned < 128 {
+            break;
+        }
+    }
+    unsafe {
+        let _ = FwpmFilterDestroyEnumHandle0(engine, enum_handle);
+    }
+    Ok(decoded)
+}
+
 /// Replaces the managed provider's filters across all four ALE layers with
 /// `policy`, inside one WFP transaction.
 fn apply_policy(policy: &FirewallPolicy) -> Result<()> {
@@ -528,19 +701,36 @@ impl FirewallProvider for WindowsBackend {
     type FirewallRule = FirewallRule;
 
     fn firewall_rules(&self) -> Result<Vec<Self::FirewallRule>> {
-        // Returns the last policy this process applied via
-        // `set_firewall_policy`, not a native WFP filter enumeration parsed
-        // back into `FirewallRule` — the same documented limitation as the
-        // Linux backend (tracked there as `NL-165`; not yet filed
-        // separately for Windows).
-        let policy = self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        Ok(policy
-            .as_ref()
-            .map(|policy| policy.rules.clone())
-            .unwrap_or_default())
+        let engine = open_engine()?;
+        let result = (|| -> Result<Vec<FirewallRule>> {
+            let mut by_weight: std::collections::BTreeMap<
+                u8,
+                std::collections::HashSet<FirewallRule>,
+            > = std::collections::BTreeMap::new();
+            for (direction, is_v6) in ALL_LAYERS {
+                for (weight, rule) in read_layer_rules(engine, direction, is_v6)? {
+                    by_weight.entry(weight).or_default().insert(rule);
+                }
+            }
+            // Weight is assigned once per rule from its position in the
+            // caller's original flat `policy.rules` list (see
+            // `rule_weight`), regardless of direction, so — unlike the
+            // Linux backend's separate inbound/outbound chains — merging
+            // by descending weight across all four layers reconstructs the
+            // caller's exact original order, including interleaved
+            // directions. A `remote: None` rule decodes identically from
+            // both its v4 and v6 layer, which the `HashSet` collapses back
+            // to the single original rule.
+            Ok(by_weight
+                .into_iter()
+                .rev()
+                .filter_map(|(_, rules)| rules.into_iter().next())
+                .collect())
+        })();
+        unsafe {
+            let _ = FwpmEngineClose0(engine);
+        }
+        result
     }
 }
 
@@ -548,22 +738,11 @@ impl FirewallMutator for WindowsBackend {
     type FirewallPolicy = WindowsFirewallPolicy;
 
     fn set_firewall_policy(&self, policy: Self::FirewallPolicy) -> Result<()> {
-        apply_policy(&policy)?;
-        *self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner()) = Some(policy);
-        Ok(())
+        apply_policy(&policy)
     }
 
     fn clear_firewall_policy(&self) -> Result<()> {
-        let empty = FirewallPolicy::new(Verdict::Allow);
-        apply_policy(&empty)?;
-        *self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner()) = Some(empty);
-        Ok(())
+        apply_policy(&FirewallPolicy::new(Verdict::Allow))
     }
 }
 
@@ -635,9 +814,14 @@ mod tests {
     /// Base Filtering Engine service running (the default). Not run by
     /// default for the same reason as this crate's other privileged tests.
     ///
-    /// This has not been verified against a live WFP engine by the author
-    /// of this change — no Windows host was available in the environment
-    /// it was written in (only cross-compilation via `cargo check`/`clippy
+    /// Exercises every match shape `decode_filter` handles (interface, IPv4
+    /// remote, IPv6 remote, a single port, a port range, and a bare
+    /// protocol match) across *both* directions in one policy, to verify
+    /// the module doc comment's claim that weight-based merging
+    /// reconstructs the exact original interleaved order. This has not
+    /// been verified against a live WFP engine by the author of this
+    /// change — no Windows host was available in the environment it was
+    /// written in (only cross-compilation via `cargo check`/`clippy
     /// --target x86_64-pc-windows-gnu`, which catches type/signature
     /// mismatches but proves nothing about runtime behavior). A passing run
     /// of this test, or inspecting the applied filters with `netsh wfp show
@@ -646,18 +830,45 @@ mod tests {
     #[test]
     #[ignore]
     fn set_then_clear_firewall_policy_round_trips_through_the_engine() {
-        use net_lattice_ip::{Ipv4Address, Ipv4Network, Ipv4PrefixLength};
+        use net_lattice_ip::{
+            Ipv4Address, Ipv4Network, Ipv4PrefixLength, Ipv6Address, Ipv6Network, Ipv6PrefixLength,
+        };
 
         let backend = WindowsBackend::new().expect("create backend");
-        let policy = FirewallPolicy::new(Verdict::Allow).with_rule(
-            FirewallRule::new(Direction::Outbound, Verdict::Deny)
-                .with_remote(Network::V4(Ipv4Network::new(
-                    Ipv4Address::new(198, 51, 100, 0),
-                    Ipv4PrefixLength::new(24).unwrap(),
-                )))
-                .with_protocol(Protocol::Udp)
-                .with_port(net_lattice_model::firewall::PortRange::single(53)),
+
+        let via_loopback =
+            FirewallRule::new(Direction::Outbound, Verdict::Allow).with_interface_index(1);
+        let v4_remote = FirewallRule::new(Direction::Outbound, Verdict::Deny).with_remote(
+            Network::V4(Ipv4Network::new(
+                Ipv4Address::new(198, 51, 100, 0),
+                Ipv4PrefixLength::new(24).unwrap(),
+            )),
         );
+        let v6_remote = FirewallRule::new(Direction::Inbound, Verdict::Deny).with_remote(
+            Network::V6(Ipv6Network::new(
+                Ipv6Address::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0]),
+                Ipv6PrefixLength::new(32).unwrap(),
+            )),
+        );
+        let single_port = FirewallRule::new(Direction::Outbound, Verdict::Allow)
+            .with_protocol(Protocol::Udp)
+            .with_port(net_lattice_model::firewall::PortRange::single(53));
+        let port_range = FirewallRule::new(Direction::Inbound, Verdict::Allow)
+            .with_protocol(Protocol::Tcp)
+            .with_port(net_lattice_model::firewall::PortRange::new(1000, 2000));
+        let protocol_only =
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_protocol(Protocol::Icmp);
+
+        // Directions are deliberately interleaved, not grouped, to exercise
+        // the cross-direction order-fidelity this backend's weight scheme
+        // claims over the Linux backend's per-chain-only ordering.
+        let policy = FirewallPolicy::new(Verdict::Allow)
+            .with_rule(via_loopback)
+            .with_rule(v6_remote)
+            .with_rule(v4_remote)
+            .with_rule(port_range)
+            .with_rule(single_port)
+            .with_rule(protocol_only);
 
         backend
             .set_firewall_policy(policy.clone())

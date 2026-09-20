@@ -85,11 +85,6 @@ const IF_TYPE_BRIDGE: u32 = 209;
 /// traits.
 pub struct WindowsBackend {
     runtime: tokio::runtime::Runtime,
-    /// The last policy applied via `FirewallMutator::set_firewall_policy`.
-    /// `FirewallProvider::firewall_rules` serves this cache rather than a
-    /// native WFP filter enumeration — see `firewall.rs`'s module doc
-    /// comment for why.
-    firewall_policy: Mutex<Option<net_lattice_model::firewall::FirewallPolicy>>,
 }
 
 impl WindowsBackend {
@@ -97,10 +92,7 @@ impl WindowsBackend {
     pub fn new() -> Result<Self> {
         let runtime =
             tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;
-        Ok(Self {
-            runtime,
-            firewall_policy: Mutex::new(None),
-        })
+        Ok(Self { runtime })
     }
 }
 
