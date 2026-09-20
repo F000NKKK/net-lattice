@@ -38,6 +38,8 @@ use net_lattice_platform::{
 #[cfg(feature = "async")]
 use net_lattice_platform::{TokioEventProvider, TokioEventReceiver};
 
+mod firewall;
+
 const RTM_VERSION: u8 = 5;
 const RTM_ADD: u8 = 1;
 const RTM_DELETE: u8 = 2;
@@ -109,6 +111,11 @@ impl Drop for DarwinWatch {
 pub struct DarwinBackend {
     runtime: tokio::runtime::Runtime,
     fd: i32,
+    /// The last policy applied via `FirewallMutator::set_firewall_policy`.
+    /// `FirewallProvider::firewall_rules` serves this cache rather than a
+    /// native `DIOCGETRULES` dump — see `firewall.rs`'s module doc comment
+    /// for why.
+    firewall_policy: std::sync::Mutex<Option<net_lattice_model::firewall::FirewallPolicy>>,
 }
 
 impl DarwinBackend {
@@ -121,7 +128,11 @@ impl DarwinBackend {
         if fd < 0 {
             return Err(Error::Platform(io_error_code(&io::Error::last_os_error())));
         }
-        Ok(Self { runtime, fd })
+        Ok(Self {
+            runtime,
+            fd,
+            firewall_policy: std::sync::Mutex::new(None),
+        })
     }
 }
 
@@ -2210,6 +2221,7 @@ impl CapabilityProvider for DarwinBackend {
             | Capability::DNS_MUTATION
             | Capability::INTERFACE_ADMIN_STATE
             | Capability::INTERFACE_MTU
+            | Capability::FIREWALL_MUTATION
     }
 }
 

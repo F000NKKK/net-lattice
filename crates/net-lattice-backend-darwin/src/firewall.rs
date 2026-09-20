@@ -1,0 +1,808 @@
+//! Native-firewall management via macOS `pf` (`FirewallProvider`/
+//! `FirewallMutator`), using raw ioctl calls on `/dev/pf`.
+//!
+//! There is no safe Rust wrapper crate for `pf` equivalent to Linux's
+//! `nftnl`, and Apple does not ship the kernel-private `net/pfvar.h` header
+//! in the public SDK (confirmed empirically: absent under
+//! `$(xcrun --show-sdk-path)/usr/include/net`). The [`pfvar`] submodule's
+//! struct definitions are transcribed field-for-field from Apple's own
+//! published kernel source, **not** reconstructed from memory or borrowed
+//! from a modern upstream OpenBSD header (macOS's `pf` forked from OpenBSD
+//! around 2007 and has not tracked its ABI evolution since, so a current
+//! OpenBSD `pfvar.h` would actively mislead rather than help):
+//!
+//! <https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/net/pfvar.h>
+//! (fetched 2026-09-20).
+//!
+//! Getting a raw ioctl struct's field layout wrong is not a logic bug a
+//! test can shrug off — `ioctl()` copies exactly `sizeof(struct)` bytes
+//! to/from the pointer given it, so a mismatched Rust `#[repr(C)]` type is
+//! a real memory-safety hazard, not merely "the rule won't apply
+//! correctly." Every [`pfvar`] type is transcribed field-by-field, in
+//! order, with Rust types matched for size and alignment to their C
+//! counterparts (`#[repr(C, align(N))]` wrappers where a union's widest
+//! member forces an alignment plain field types wouldn't reproduce on
+//! their own) — `#[repr(C)]`'s layout algorithm then reproduces the same
+//! padding a C compiler would, without this module hand-computing offsets.
+//! Fields this module never reads or writes (kernel-owned pointers,
+//! counters, OS-fingerprint state, ALTQ/dummynet scheduling) are left at
+//! their zeroed default, mirroring how `pfctl` itself builds a rule.
+//!
+//! **This has not been verified against a live kernel or even compiled
+//! against a real macOS SDK by the author of this change** — only
+//! cross-compiled via `cargo check`/`clippy --target
+//! {x86_64,aarch64}-apple-darwin`, which cannot catch an ABI mismatch in a
+//! hand-transcribed struct (see above). The added `#[ignore]`d privileged
+//! test is the outstanding verification gate; a passing run against a real
+//! `macos-latest` CI runner (or `pfctl -a net_lattice -sr` inspection while
+//! it's paused mid-run) is required before trusting this implementation.
+//!
+//! One `pf` anchor (`net_lattice`) holds every rule this module manages,
+//! added via a single `DIOCXBEGIN`/`DIOCADDRULE*`/`DIOCXCOMMIT` transaction
+//! per [`FirewallMutator::set_firewall_policy`] call — `pf`'s transaction
+//! ticket mechanism stages a fresh ruleset and swaps it in atomically on
+//! commit, which is also exactly the semantics `FirewallMutator` documents
+//! (whole-policy replace), so unlike the Linux/Windows backends this one
+//! needs no separate explicit flush step. Every rule carries `quick = 1`
+//! (first-match-wins, matching [`FirewallPolicy`]'s documented evaluation
+//! order) and [`FirewallPolicy::default_verdict`] is realized as one final
+//! unconditional `quick` rule appended after the caller's ordered rules —
+//! `pf` has no equivalent to nftables' base-chain policy or a WFP
+//! condition-free lowest-weight filter, but the same effect follows from
+//! `quick` evaluation order.
+
+use std::ffi::CString;
+use std::io;
+
+use net_lattice_core::{Error, PlatformErrorCode, Result};
+use net_lattice_model::Network;
+use net_lattice_model::firewall::{Direction, FirewallPolicy, FirewallRule, Protocol, Verdict};
+use net_lattice_platform::{FirewallMutator, FirewallProvider};
+
+use crate::DarwinBackend;
+
+/// Raw `pf` ioctl structs transcribed from Apple's `bsd/net/pfvar.h` — see
+/// this module's doc comment for provenance and the verification gap.
+#[allow(
+    non_camel_case_types,
+    non_snake_case,
+    dead_code,
+    reason = "transcribed 1:1 from the real header for completeness/documentation; \
+    not every constant this module defines is consumed (e.g. PF_OP_NONE is the \
+    implicit default an unset xport already has)"
+)]
+mod pfvar {
+    use std::ffi::c_void;
+
+    pub const IFNAMSIZ: usize = 16;
+    pub const MAXPATHLEN: usize = 1024;
+    pub const PF_TABLE_NAME_SIZE: usize = 32;
+    pub const RTLABEL_LEN: usize = 32;
+    pub const PF_RULE_LABEL_SIZE: usize = 64;
+    pub const PF_QNAME_SIZE: usize = 64;
+    pub const PF_TAG_NAME_SIZE: usize = 64;
+    pub const PF_OWNER_NAME_SIZE: usize = 64;
+    pub const PF_SKIP_COUNT: usize = 8;
+    /// Real indices into `pf_rule.timeout[]` run `0..PFTM_MAX` (26); this
+    /// module never sets a per-rule timeout override, so only the array's
+    /// size (for correct `pf_rule` layout) matters here.
+    pub const PFTM_MAX: usize = 26;
+
+    pub const PF_INOUT: u8 = 0;
+    pub const PF_IN: u8 = 1;
+    pub const PF_OUT: u8 = 2;
+
+    pub const PF_PASS: u8 = 0;
+    pub const PF_DROP: u8 = 1;
+
+    pub const PF_ADDR_ADDRMASK: u8 = 0;
+
+    pub const PF_OP_NONE: u8 = 0;
+    pub const PF_OP_EQ: u8 = 2;
+    pub const PF_OP_RRG: u8 = 9;
+
+    pub const PF_RULESET_FILTER: i32 = 1;
+
+    pub const DIOCADDRULE: libc::c_ulong = ioc::iowr(b'D', 4, size_of::<PfiocRule>());
+    pub const DIOCBEGINADDRS: libc::c_ulong = ioc::iowr(b'D', 51, size_of::<PfiocPooladdr>());
+    pub const DIOCXBEGIN: libc::c_ulong = ioc::iowr(b'D', 81, size_of::<PfiocTrans>());
+    pub const DIOCXCOMMIT: libc::c_ulong = ioc::iowr(b'D', 82, size_of::<PfiocTrans>());
+    pub const DIOCXROLLBACK: libc::c_ulong = ioc::iowr(b'D', 83, size_of::<PfiocTrans>());
+
+    /// BSD `_IOWR` ioctl request-code encoding (`sys/ioccom.h`), unchanged
+    /// across Darwin/FreeBSD/NetBSD for decades: `IOC_INOUT | (len <<
+    /// 16) | (group << 8) | num`.
+    mod ioc {
+        const IOCPARM_MASK: libc::c_ulong = 0x1fff;
+        const IOC_OUT: libc::c_ulong = 0x4000_0000;
+        const IOC_IN: libc::c_ulong = 0x8000_0000;
+        const IOC_INOUT: libc::c_ulong = IOC_IN | IOC_OUT;
+
+        pub const fn iowr(group: u8, num: u8, len: usize) -> libc::c_ulong {
+            IOC_INOUT
+                | ((len as libc::c_ulong & IOCPARM_MASK) << 16)
+                | ((group as libc::c_ulong) << 8)
+                | (num as libc::c_ulong)
+        }
+    }
+
+    /// `struct pf_addr`: a 128-bit address union. Represented as raw bytes;
+    /// this module only ever writes the leading 4 (IPv4) or all 16 (IPv6)
+    /// bytes and leaves the rest zero, which is exactly how the real union
+    /// behaves for a shorter address. `align(4)` reproduces the alignment
+    /// the real union gets from its `struct in_addr`/`u_int32_t[4]`
+    /// members, which a bare `[u8; 16]` would not carry on its own.
+    #[repr(C, align(4))]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfAddr(pub [u8; 16]);
+
+    /// The `v` union inside `struct pf_addr_wrap` (address+mask, or an
+    /// interface/table/route-label name). This module only ever uses the
+    /// address+mask form; the others are represented only for correct
+    /// size/alignment (32 bytes, 4-aligned — the widest member is the
+    /// `{ addr, mask }` pair of two 16-byte, 4-aligned `pf_addr`s).
+    #[repr(C, align(4))]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfAddrWrapV {
+        pub addr: PfAddr,
+        pub mask: PfAddr,
+    }
+
+    /// `struct pf_addr_wrap`. The `p` union (`dyn`/`tbl`/`dyncnt`/`tblcnt`)
+    /// is kernel/table-management state this module never populates —
+    /// represented as a plain `u64` (matching the union's
+    /// `__attribute__((aligned(8)))`-forced size and alignment) and always
+    /// left zero.
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfAddrWrap {
+        pub v: PfAddrWrapV,
+        pub p: u64,
+        pub r#type: u8,
+        pub iflags: u8,
+    }
+
+    /// `struct pf_port_range` packed into `union pf_rule_xport` (the union
+    /// also has a `u_int16_t call_id` and `u_int32_t spi` variant, neither
+    /// used by this module; the range form is its widest member).
+    #[repr(C, align(4))]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfRuleXport {
+        pub port: [u16; 2],
+        pub op: u8,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfRuleAddr {
+        pub addr: PfAddrWrap,
+        pub xport: PfRuleXport,
+        pub neg: u8,
+    }
+
+    /// `struct pf_palist` (`TAILQ_HEAD`): two pointers, always empty here.
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfPalist {
+        pub tqh_first: u64,
+        pub tqh_last: u64,
+    }
+
+    /// `union pf_poolhashkey`: represented as raw bytes; this module never
+    /// sets a source-hash pool, so it is always zero.
+    #[repr(C, align(4))]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfPoolhashkey(pub [u8; 16]);
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfPool {
+        pub list: PfPalist,
+        pub cur: u64,
+        pub key: PfPoolhashkey,
+        pub counter: PfAddr,
+        pub tblidx: i32,
+        pub proxy_port: [u16; 2],
+        pub port_op: u8,
+        pub opts: u8,
+        pub af: u8,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfRuleUid {
+        pub uid: [u32; 2],
+        pub op: u8,
+        pub _pad: [u8; 3],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfRuleGid {
+        pub gid: [u32; 2],
+        pub op: u8,
+        pub _pad: [u8; 3],
+    }
+
+    /// `union pf_rule_ptr` (`skip[]` kernel-computed jump targets): a
+    /// tagged pointer/index the kernel recomputes on load, forced 8-byte
+    /// aligned in the real union. Always zero from userspace.
+    pub type PfRulePtr = u64;
+
+    /// `struct pf_rule`, transcribed field-for-field from `bsd/net/pfvar.h`
+    /// (see this module's parent doc comment for the exact source). Only
+    /// `src`, `dst`, `ifname`, `rule_flag`, `action`, `direction`, `quick`,
+    /// `af`, and `proto` are ever set by this module; every other field
+    /// stays at its `Default` (zeroed) value, the same way `pfctl` builds
+    /// a rule it doesn't need every feature of.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct PfRule {
+        pub src: PfRuleAddr,
+        pub dst: PfRuleAddr,
+        pub skip: [PfRulePtr; PF_SKIP_COUNT],
+        pub label: [u8; PF_RULE_LABEL_SIZE],
+        pub ifname: [u8; IFNAMSIZ],
+        pub qname: [u8; PF_QNAME_SIZE],
+        pub pqname: [u8; PF_QNAME_SIZE],
+        pub tagname: [u8; PF_TAG_NAME_SIZE],
+        pub match_tagname: [u8; PF_TAG_NAME_SIZE],
+        pub overload_tblname: [u8; PF_TABLE_NAME_SIZE],
+        pub entries: PfPalist,
+        pub rpool: PfPool,
+        pub evaluations: u64,
+        pub packets: [u64; 2],
+        pub bytes: [u64; 2],
+        pub ticket: u64,
+        pub owner: [u8; PF_OWNER_NAME_SIZE],
+        pub priority: u32,
+        pub kif: u64,
+        pub anchor: u64,
+        pub overload_tbl: u64,
+        pub os_fingerprint: u32,
+        pub rtableid: u32,
+        pub timeout: [u32; PFTM_MAX],
+        pub states: u32,
+        pub max_states: u32,
+        pub src_nodes: u32,
+        pub max_src_nodes: u32,
+        pub max_src_states: u32,
+        pub max_src_conn: u32,
+        pub max_src_conn_rate_limit: u32,
+        pub max_src_conn_rate_seconds: u32,
+        pub qid: u32,
+        pub pqid: u32,
+        pub rt_listid: u32,
+        pub nr: u32,
+        pub prob: u32,
+        pub cuid: u32,
+        pub cpid: i32,
+        pub return_icmp: u16,
+        pub return_icmp6: u16,
+        pub max_mss: u16,
+        pub tag: u16,
+        pub match_tag: u16,
+        pub uid: PfRuleUid,
+        pub gid: PfRuleGid,
+        pub rule_flag: u32,
+        pub action: u8,
+        pub direction: u8,
+        pub log: u8,
+        pub logif: u8,
+        pub quick: u8,
+        pub ifnot: u8,
+        pub match_tag_not: u8,
+        pub natpass: u8,
+        pub keep_state: u8,
+        pub af: u8,
+        pub proto: u8,
+        pub r#type: u8,
+        pub code: u8,
+        pub flags: u8,
+        pub flagset: u8,
+        pub min_ttl: u8,
+        pub allow_opts: u8,
+        pub rt: u8,
+        pub return_ttl: u8,
+        pub tos: u8,
+        pub anchor_relative: u8,
+        pub anchor_wildcard: u8,
+        pub flush: u8,
+        pub proto_variant: u8,
+        pub extfilter: u8,
+        pub extmap: u8,
+        pub dnpipe: u32,
+        pub dntype: u32,
+    }
+
+    impl Default for PfRule {
+        fn default() -> Self {
+            // SAFETY: every field is a plain integer, byte array, or one of
+            // this module's own zeroable wrapper types — an all-zero bit
+            // pattern is a valid value for all of them, mirroring pfctl's
+            // own `bzero(&rule, sizeof(rule))` convention.
+            unsafe { std::mem::zeroed() }
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct PfiocRule {
+        pub action: u32,
+        pub ticket: u32,
+        pub pool_ticket: u32,
+        pub nr: u32,
+        pub anchor: [u8; MAXPATHLEN],
+        pub anchor_call: [u8; MAXPATHLEN],
+        pub rule: PfRule,
+    }
+
+    impl Default for PfiocRule {
+        fn default() -> Self {
+            // SAFETY: same reasoning as `PfRule::default` — every field is
+            // zeroable, and `pfctl` itself builds this struct the same way.
+            unsafe { std::mem::zeroed() }
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct PfPooladdrAddr {
+        pub addr: PfAddrWrap,
+        pub entries: PfPalist,
+        pub ifname: [u8; IFNAMSIZ],
+        pub kif: u64,
+    }
+
+    #[repr(C)]
+    pub struct PfiocPooladdr {
+        pub action: u32,
+        pub ticket: u32,
+        pub nr: u32,
+        pub r_num: u32,
+        pub r_action: u8,
+        pub r_last: u8,
+        pub af: u8,
+        pub anchor: [u8; MAXPATHLEN],
+        pub addr: PfPooladdrAddr,
+    }
+
+    impl Default for PfiocPooladdr {
+        fn default() -> Self {
+            // SAFETY: every field is zeroable; matches `pfctl`'s own usage
+            // (a fresh, empty pool request needs no fields but `anchor`).
+            unsafe { std::mem::zeroed() }
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct PfiocTransE {
+        pub rs_num: i32,
+        pub anchor: [u8; MAXPATHLEN],
+        pub ticket: u32,
+    }
+
+    impl Default for PfiocTransE {
+        fn default() -> Self {
+            // SAFETY: every field is zeroable.
+            unsafe { std::mem::zeroed() }
+        }
+    }
+
+    #[repr(C)]
+    pub struct PfiocTrans {
+        pub size: i32,
+        pub esize: i32,
+        pub array: *mut PfiocTransE,
+    }
+
+    /// Casts `t` to the `*mut c_void` `ioctl`'s variadic third argument
+    /// expects, purely to keep call sites free of a repeated inline cast.
+    pub fn as_ioctl_arg<T>(t: &mut T) -> *mut c_void {
+        (t as *mut T).cast()
+    }
+}
+
+const ANCHOR: &[u8] = b"net_lattice";
+
+fn darwin_error_code(err: &io::Error) -> PlatformErrorCode {
+    PlatformErrorCode::Darwin(err.raw_os_error().unwrap_or(0))
+}
+
+fn anchor_bytes() -> [u8; pfvar::MAXPATHLEN] {
+    let mut anchor = [0u8; pfvar::MAXPATHLEN];
+    anchor[..ANCHOR.len()].copy_from_slice(ANCHOR);
+    anchor
+}
+
+fn ioctl_checked(fd: i32, request: libc::c_ulong, arg: *mut std::ffi::c_void) -> Result<()> {
+    let status = unsafe { libc::ioctl(fd, request, arg) };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(Error::Platform(darwin_error_code(
+            &io::Error::last_os_error(),
+        )))
+    }
+}
+
+fn open_pf() -> Result<i32> {
+    let path = CString::new("/dev/pf").expect("static path has no interior NUL");
+    let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR) };
+    if fd < 0 {
+        return Err(Error::Platform(darwin_error_code(
+            &io::Error::last_os_error(),
+        )));
+    }
+    Ok(fd)
+}
+
+fn pf_action(verdict: Verdict) -> u8 {
+    match verdict {
+        Verdict::Allow => pfvar::PF_PASS,
+        Verdict::Deny => pfvar::PF_DROP,
+        _ => unreachable!("Verdict is non_exhaustive; every current variant is handled above"),
+    }
+}
+
+fn pf_direction(direction: Direction) -> u8 {
+    match direction {
+        Direction::Inbound => pfvar::PF_IN,
+        Direction::Outbound => pfvar::PF_OUT,
+        _ => unreachable!("Direction is non_exhaustive; every current variant is handled above"),
+    }
+}
+
+/// Returns the `IPPROTO_*` number for `protocol`, disambiguating
+/// [`Protocol::Icmp`] by `remote`'s family exactly like the Linux backend
+/// (a single `pf_rule.af` covers both directions here, same ambiguity when
+/// `remote` is `None`): defaults to IPv4 ICMP unless `remote` is IPv6.
+fn protocol_number(protocol: Protocol, remote: Option<&Network>) -> u8 {
+    match protocol {
+        Protocol::Tcp => libc::IPPROTO_TCP as u8,
+        Protocol::Udp => libc::IPPROTO_UDP as u8,
+        Protocol::Icmp => match remote {
+            Some(Network::V6(_)) => libc::IPPROTO_ICMPV6 as u8,
+            _ => libc::IPPROTO_ICMP as u8,
+        },
+        _ => unreachable!("Protocol is non_exhaustive; every current variant is handled above"),
+    }
+}
+
+fn address_family(remote: Option<&Network>) -> u8 {
+    match remote {
+        Some(Network::V4(_)) => libc::AF_INET as u8,
+        Some(Network::V6(_)) => libc::AF_INET6 as u8,
+        None => libc::AF_UNSPEC as u8,
+    }
+}
+
+fn pf_rule_addr_for(remote: Network) -> pfvar::PfRuleAddr {
+    let mut addr = pfvar::PfRuleAddr {
+        addr: pfvar::PfAddrWrap {
+            r#type: pfvar::PF_ADDR_ADDRMASK,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    match remote {
+        Network::V4(network) => {
+            let ip = std::net::Ipv4Addr::from(network.address()).octets();
+            addr.addr.v.addr.0[..4].copy_from_slice(&ip);
+            let prefix = network.prefix().value();
+            let mask = if prefix == 0 {
+                0u32
+            } else {
+                u32::MAX << (32 - prefix)
+            };
+            addr.addr.v.mask.0[..4].copy_from_slice(&mask.to_be_bytes());
+        }
+        Network::V6(network) => {
+            let ip = std::net::Ipv6Addr::from(network.address()).octets();
+            addr.addr.v.addr.0 = ip;
+            addr.addr.v.mask.0 = ipv6_prefix_mask(u32::from(network.prefix().value()));
+        }
+    }
+    addr
+}
+
+/// Builds a 16-byte big-endian IPv6 prefix mask covering the leading
+/// `prefix` bits — identical construction to the Linux backend's helper of
+/// the same shape.
+fn ipv6_prefix_mask(prefix: u32) -> [u8; 16] {
+    let mut mask = [0u8; 16];
+    for (i, byte) in mask.iter_mut().enumerate() {
+        let bit_offset = i as u32 * 8;
+        *byte = if bit_offset + 8 <= prefix {
+            0xff
+        } else if bit_offset < prefix {
+            0xffu8 << (8 - (prefix - bit_offset))
+        } else {
+            0x00
+        };
+    }
+    mask
+}
+
+fn set_port_xport(xport: &mut pfvar::PfRuleXport, start: u16, end: u16) {
+    if start == end {
+        xport.op = pfvar::PF_OP_EQ;
+        xport.port = [start.to_be(), 0];
+    } else {
+        xport.op = pfvar::PF_OP_RRG;
+        xport.port = [start.to_be(), end.to_be()];
+    }
+}
+
+/// Compiles `config` into a `pf_rule`. `quick` is always set — see this
+/// module's doc comment for why every managed rule needs first-match-wins
+/// evaluation.
+fn build_pf_rule(config: &FirewallRule) -> pfvar::PfRule {
+    let mut rule = pfvar::PfRule {
+        action: pf_action(config.verdict),
+        direction: pf_direction(config.direction),
+        quick: 1,
+        af: address_family(config.remote.as_ref()),
+        ..Default::default()
+    };
+
+    if let Some(index) = config.interface_index {
+        let mut name_buf = [0u8; libc::IF_NAMESIZE];
+        let name_ptr = unsafe { libc::if_indextoname(index, name_buf.as_mut_ptr().cast()) };
+        if !name_ptr.is_null() {
+            let name_len = name_buf.iter().position(|&b| b == 0).unwrap_or(0);
+            let copy_len = name_len.min(pfvar::IFNAMSIZ - 1);
+            rule.ifname[..copy_len].copy_from_slice(&name_buf[..copy_len]);
+        }
+    }
+
+    if let Some(remote) = config.remote {
+        let remote_addr = pf_rule_addr_for(remote);
+        match config.direction {
+            Direction::Inbound => rule.src = remote_addr,
+            Direction::Outbound => rule.dst = remote_addr,
+            _ => {
+                unreachable!("Direction is non_exhaustive; every current variant is handled above")
+            }
+        }
+    }
+
+    if let Some(protocol) = config.protocol {
+        rule.proto = protocol_number(protocol, config.remote.as_ref());
+
+        if let Some(port) = config.port
+            && matches!(protocol, Protocol::Tcp | Protocol::Udp)
+        {
+            let xport = match config.direction {
+                Direction::Inbound => &mut rule.src.xport,
+                Direction::Outbound => &mut rule.dst.xport,
+                _ => unreachable!(
+                    "Direction is non_exhaustive; every current variant is handled above"
+                ),
+            };
+            set_port_xport(xport, port.start, port.end);
+        }
+    }
+
+    rule
+}
+
+fn default_rule(verdict: Verdict) -> pfvar::PfRule {
+    pfvar::PfRule {
+        action: pf_action(verdict),
+        direction: pfvar::PF_INOUT,
+        quick: 1,
+        ..Default::default()
+    }
+}
+
+/// Reserves a pool ticket for a rule with no route/NAT pool. `pf`'s
+/// `DIOCADDRULE` handler validates `rule.pool_ticket` against the current
+/// pool generation even for a rule that never references a pool address,
+/// so every rule still needs one, matching `pfctl`'s own behavior.
+fn begin_pool_ticket(fd: i32) -> Result<u32> {
+    let mut request = pfvar::PfiocPooladdr {
+        anchor: anchor_bytes(),
+        ..Default::default()
+    };
+    ioctl_checked(fd, pfvar::DIOCBEGINADDRS, pfvar::as_ioctl_arg(&mut request))?;
+    Ok(request.ticket)
+}
+
+/// Replaces every rule in the `net_lattice` anchor with `policy`'s rules
+/// (each compiled with `quick = 1`) plus one trailing unconditional
+/// `quick` rule for `policy.default_verdict`, inside one
+/// `DIOCXBEGIN`/`DIOCADDRULE`/`DIOCXCOMMIT` transaction.
+fn apply_policy(policy: &FirewallPolicy) -> Result<()> {
+    let fd = open_pf()?;
+    let result = (|| -> Result<()> {
+        let mut trans_entry = pfvar::PfiocTransE {
+            rs_num: pfvar::PF_RULESET_FILTER,
+            anchor: anchor_bytes(),
+            ticket: 0,
+        };
+        let mut trans = pfvar::PfiocTrans {
+            size: 1,
+            esize: size_of::<pfvar::PfiocTransE>() as i32,
+            array: &mut trans_entry,
+        };
+        ioctl_checked(fd, pfvar::DIOCXBEGIN, pfvar::as_ioctl_arg(&mut trans))?;
+
+        let add = |rule: pfvar::PfRule| -> Result<()> {
+            let pool_ticket = begin_pool_ticket(fd)?;
+            let mut request = pfvar::PfiocRule {
+                ticket: trans_entry.ticket,
+                pool_ticket,
+                anchor: anchor_bytes(),
+                rule,
+                ..Default::default()
+            };
+            ioctl_checked(fd, pfvar::DIOCADDRULE, pfvar::as_ioctl_arg(&mut request))
+        };
+
+        for config in &policy.rules {
+            add(build_pf_rule(config))?;
+        }
+        add(default_rule(policy.default_verdict))?;
+
+        ioctl_checked(fd, pfvar::DIOCXCOMMIT, pfvar::as_ioctl_arg(&mut trans))
+    })();
+
+    if result.is_err() {
+        let mut trans_entry = pfvar::PfiocTransE {
+            rs_num: pfvar::PF_RULESET_FILTER,
+            anchor: anchor_bytes(),
+            ticket: 0,
+        };
+        let mut trans = pfvar::PfiocTrans {
+            size: 1,
+            esize: size_of::<pfvar::PfiocTransE>() as i32,
+            array: &mut trans_entry,
+        };
+        let _ = ioctl_checked(fd, pfvar::DIOCXROLLBACK, pfvar::as_ioctl_arg(&mut trans));
+    }
+    unsafe {
+        libc::close(fd);
+    }
+    result
+}
+
+impl FirewallProvider for DarwinBackend {
+    type FirewallRule = FirewallRule;
+
+    fn firewall_rules(&self) -> Result<Vec<Self::FirewallRule>> {
+        // Returns the last policy this process applied via
+        // `set_firewall_policy`, not a native `DIOCGETRULES` dump parsed
+        // back into `FirewallRule` — the same documented limitation as the
+        // Linux backend (tracked there as `NL-165`; not yet filed
+        // separately for Darwin).
+        let policy = self
+            .firewall_policy
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        Ok(policy
+            .as_ref()
+            .map(|policy| policy.rules.clone())
+            .unwrap_or_default())
+    }
+}
+
+impl FirewallMutator for DarwinBackend {
+    type FirewallPolicy = FirewallPolicy;
+
+    fn set_firewall_policy(&self, policy: Self::FirewallPolicy) -> Result<()> {
+        apply_policy(&policy)?;
+        *self
+            .firewall_policy
+            .lock()
+            .unwrap_or_else(|err| err.into_inner()) = Some(policy);
+        Ok(())
+    }
+
+    fn clear_firewall_policy(&self) -> Result<()> {
+        let empty = FirewallPolicy::new(Verdict::Allow);
+        apply_policy(&empty)?;
+        *self
+            .firewall_policy
+            .lock()
+            .unwrap_or_else(|err| err.into_inner()) = Some(empty);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ioctl_request_codes_match_the_documented_bsd_encoding() {
+        // DIOCADDRULE = _IOWR('D', 4, struct pfioc_rule) — spot-check
+        // against the header's literal macro expansion rather than only
+        // re-deriving the same formula this module already uses.
+        let expected = 0x8000_0000u64
+            | 0x4000_0000u64
+            | ((size_of::<pfvar::PfiocRule>() as u64 & 0x1fff) << 16)
+            | (u64::from(b'D') << 8)
+            | 4;
+        assert_eq!(pfvar::DIOCADDRULE, expected);
+    }
+
+    #[test]
+    fn ipv6_prefix_mask_covers_leading_bits_only() {
+        assert_eq!(ipv6_prefix_mask(0), [0u8; 16]);
+        assert_eq!(ipv6_prefix_mask(128), [0xffu8; 16]);
+        let mask = ipv6_prefix_mask(64);
+        assert_eq!(&mask[..8], &[0xff; 8]);
+        assert_eq!(&mask[8..], &[0x00; 8]);
+    }
+
+    #[test]
+    fn protocol_number_disambiguates_icmp_by_remote_family() {
+        use net_lattice_ip::{Ipv6Address, Ipv6Network, Ipv6PrefixLength};
+
+        let v6 = Network::V6(Ipv6Network::new(
+            Ipv6Address::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0]),
+            Ipv6PrefixLength::new(32).unwrap(),
+        ));
+        assert_eq!(
+            protocol_number(Protocol::Icmp, Some(&v6)),
+            libc::IPPROTO_ICMPV6 as u8
+        );
+        assert_eq!(
+            protocol_number(Protocol::Icmp, None),
+            libc::IPPROTO_ICMP as u8
+        );
+    }
+
+    #[test]
+    fn set_port_xport_uses_network_byte_order() {
+        let mut xport = pfvar::PfRuleXport::default();
+        set_port_xport(&mut xport, 53, 53);
+        assert_eq!(xport.op, pfvar::PF_OP_EQ);
+        assert_eq!(xport.port[0], 53u16.to_be());
+
+        let mut xport = pfvar::PfRuleXport::default();
+        set_port_xport(&mut xport, 1000, 2000);
+        assert_eq!(xport.op, pfvar::PF_OP_RRG);
+        assert_eq!(xport.port[0], 1000u16.to_be());
+        assert_eq!(xport.port[1], 2000u16.to_be());
+    }
+
+    /// Requires running as root on a real macOS host with `pf` present
+    /// (present on every supported macOS version, but not necessarily
+    /// enabled by default). Not run by default for the same reason as
+    /// this crate's other privileged tests.
+    ///
+    /// This has not been verified against a live kernel by the author of
+    /// this change — see this module's doc comment for the full
+    /// verification gap (no macOS host, only cross-compilation, and a
+    /// hand-transcribed ioctl struct that cross-compilation cannot
+    /// validate). A passing run of this test, or `pfctl -a net_lattice -sr`
+    /// inspection while it is paused mid-run, is the outstanding
+    /// verification this crate's own author could not perform.
+    #[test]
+    #[ignore]
+    fn set_then_clear_firewall_policy_round_trips_through_the_kernel() {
+        use net_lattice_ip::{Ipv4Address, Ipv4Network, Ipv4PrefixLength};
+
+        let backend = DarwinBackend::new().expect("create backend");
+        let policy = FirewallPolicy::new(Verdict::Allow).with_rule(
+            FirewallRule::new(Direction::Outbound, Verdict::Deny)
+                .with_remote(Network::V4(Ipv4Network::new(
+                    Ipv4Address::new(198, 51, 100, 0),
+                    Ipv4PrefixLength::new(24).unwrap(),
+                )))
+                .with_protocol(Protocol::Udp)
+                .with_port(net_lattice_model::firewall::PortRange::single(53)),
+        );
+
+        backend
+            .set_firewall_policy(policy.clone())
+            .expect("apply policy");
+        assert_eq!(backend.firewall_rules().unwrap(), policy.rules);
+
+        backend.clear_firewall_policy().expect("clear policy");
+        assert!(backend.firewall_rules().unwrap().is_empty());
+    }
+}

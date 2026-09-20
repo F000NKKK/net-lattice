@@ -43,38 +43,30 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libmnl-dev libnftnl-dev
 
       # Temporary, for NL-166 macOS firewall groundwork: dump the real
-      # Apple net/pfvar.h this runner's SDK ships (raw ioctl structs for
-      # DIOCADDRULE/pf_rule have no safe Rust wrapper crate and no locally
-      # available authoritative header outside this runner) so the exact
-      # struct layout can be transcribed accurately instead of guessed.
-      # Remove once the macOS firewall backend lands and this is no longer
-      # needed.
+      # Apple net/pfvar.h (raw ioctl structs for DIOCADDRULE/pf_rule have
+      # no safe Rust wrapper crate) so the exact struct layout can be
+      # transcribed accurately instead of guessed. Apple does not ship this
+      # header in the public SDK (confirmed on this runner: "No such file
+      # or directory" under $(xcrun --show-sdk-path)/usr/include/net) —
+      # it's kernel-private. The only place Apple actually publishes it is
+      # their own open-source XNU mirror, which is also the correct
+      # reference (same fork lineage), unlike a modern upstream OpenBSD
+      # pfvar.h (macOS's pf hasn't tracked OpenBSD's ABI since ~2007).
+      # Fetches source text only — this header pulls in other xnu-internal
+      # headers and can't be meaningfully compiled outside the kernel
+      # build, so no sizeof()/offsetof() step here, just the text to
+      # transcribe field-by-field. Remove this step once the macOS
+      # firewall backend lands.
       - name: Dump macOS net/pfvar.h (temporary, NL-166 macOS firewall groundwork)
         if: matrix.os == 'macos-latest'
         run: |
-          SDK=$(xcrun --sdk macosx --show-sdk-path)
-          echo "SDK path: $SDK"
-          echo "--- BEGIN net/pfvar.h ---"
-          cat "$SDK/usr/include/net/pfvar.h"
-          echo "--- END net/pfvar.h ---"
-          cat > /tmp/pfvar_sizes.c << 'PFVAR_SIZES_EOF'
-          #include <stdio.h>
-          #include <net/pfvar.h>
-          int main(void) {
-              printf("sizeof(struct pf_addr) = %zu\n", sizeof(struct pf_addr));
-              printf("sizeof(struct pf_addr_wrap) = %zu\n", sizeof(struct pf_addr_wrap));
-              printf("sizeof(struct pf_rule_addr) = %zu\n", sizeof(struct pf_rule_addr));
-              printf("sizeof(struct pf_pool) = %zu\n", sizeof(struct pf_pool));
-              printf("sizeof(struct pf_rule) = %zu\n", sizeof(struct pf_rule));
-              printf("sizeof(struct pfioc_rule) = %zu\n", sizeof(struct pfioc_rule));
-              printf("sizeof(struct pfioc_trans) = %zu\n", sizeof(struct pfioc_trans));
-              return 0;
-          }
-          PFVAR_SIZES_EOF
-          clang -I"$SDK/usr/include" /tmp/pfvar_sizes.c -o /tmp/pfvar_sizes
-          echo "--- BEGIN struct sizes ---"
-          /tmp/pfvar_sizes
-          echo "--- END struct sizes ---"
+          echo "--- BEGIN sw_vers / uname (to record which macOS this came from) ---"
+          sw_vers
+          uname -a
+          echo "--- END sw_vers / uname ---"
+          echo "--- BEGIN bsd/net/pfvar.h (apple-oss-distributions/xnu, main branch) ---"
+          curl -fsSL https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/net/pfvar.h
+          echo "--- END bsd/net/pfvar.h ---"
 
       - name: Install Rust (MSRV with coverage tools)
         uses: dtolnay/rust-toolchain@master
