@@ -797,7 +797,7 @@ not a realistic addition in the workspace's current roadmap, unlike
 - **Snapshot** (`snapshot`): `CurrentState`.
 - **Declarative desired state** (`desired_state`): `DesiredState`.
 - **Diff** (`diff`): `Diff`, `Change`, `RouteChange`, `InterfaceDiff`,
-  `NeighborChange`, `AddressChange`, `DnsChange`.
+  `NeighborChange`, `AddressChange`, `DnsChange`, `FirewallChange`.
 - **Apply plan** (`apply`): `ApplyPlan`, `ApplyPlanReport`, `ApplyStep`,
   `ApplyStepOutcome`, `NonConvergentReason`.
 - **Events** (`event`): `Event`, `EventDomain`, `EventFilter`, `ChangeKind`.
