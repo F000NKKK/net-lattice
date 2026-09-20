@@ -21,6 +21,10 @@ the public `net-lattice` facade via `Lattice::add_static_neighbor`/
 `remove_static_neighbor` and `Mutation::{AddStaticNeighbor,
 RemoveStaticNeighbor}`.
 
+Firewall policy management is likewise reachable through the facade via
+`Lattice::firewall_rules`/`set_firewall_policy`/`clear_firewall_policy` —
+direct use of this crate's `LinuxBackend` is not required.
+
 Applications should normally use the `net-lattice` facade, which selects this
 backend automatically on Linux. Direct use is intended for backend integration
 and diagnostics.

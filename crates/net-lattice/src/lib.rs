@@ -200,6 +200,9 @@ use net_lattice_model::event::{Event, EventDomain, EventFilter};
 #[allow(unused_imports)]
 use net_lattice_model::event::ChangeKind;
 #[allow(unused_imports)]
+use net_lattice_model::firewall::{Direction, PortRange, Protocol, Verdict};
+use net_lattice_model::firewall::{FirewallPolicy, FirewallRule};
+#[allow(unused_imports)]
 use net_lattice_model::ifaddr::InterfaceAddressId;
 use net_lattice_model::ifaddr::{InterfaceAddress, NewInterfaceAddress};
 #[allow(unused_imports)]
@@ -222,12 +225,14 @@ use net_lattice_model::snapshot::CurrentState;
 use net_lattice_model::{IpAddress, Network};
 #[allow(unused_imports)]
 use net_lattice_platform::DnsProvider;
+#[allow(unused_imports)]
+use net_lattice_platform::FirewallProvider;
 #[cfg(feature = "async")]
 use net_lattice_platform::TokioEventProvider;
 use net_lattice_platform::{
     Addition, AdditionProvider, AddressMutator, AddressProvider, DnsMutator, EventProvider,
-    EventReceiver, EventSender, InterfaceMutator, InterfaceProvider, NeighborMutator,
-    NeighborProvider, RouteMutator, RouteProvider, SnapshotProvider,
+    EventReceiver, EventSender, FirewallMutator, InterfaceMutator, InterfaceProvider,
+    NeighborMutator, NeighborProvider, RouteMutator, RouteProvider, SnapshotProvider,
 };
 pub use net_lattice_platform::{Capability, CapabilityProvider};
 
@@ -240,6 +245,8 @@ pub use net_lattice_platform::{Capability, CapabilityProvider};
 pub mod model {
     #[doc(inline)]
     pub use net_lattice_model::dns::DnsConfig;
+    #[doc(inline)]
+    pub use net_lattice_model::firewall::{Direction, FirewallRule, PortRange, Protocol, Verdict};
     #[doc(inline)]
     pub use net_lattice_model::ifaddr::{InterfaceAddress, InterfaceAddressId};
     #[doc(inline)]
@@ -258,8 +265,8 @@ pub mod model {
     pub use net_lattice_model::{IpAddress, Network};
     #[doc(inline)]
     pub use net_lattice_platform::{
-        AddressProvider, DnsProvider, InterfaceProvider, NeighborProvider, RouteProvider,
-        SnapshotProvider,
+        AddressProvider, DnsProvider, FirewallProvider, InterfaceProvider, NeighborProvider,
+        RouteProvider, SnapshotProvider,
     };
 }
 
@@ -286,6 +293,8 @@ pub mod mutation {
     #[doc(inline)]
     pub use net_lattice_model::dns::NewDnsConfig;
     #[doc(inline)]
+    pub use net_lattice_model::firewall::FirewallPolicy;
+    #[doc(inline)]
     pub use net_lattice_model::ifaddr::NewInterfaceAddress;
     #[doc(inline)]
     pub use net_lattice_model::interface::{DesiredAdminState, InterfaceConfig};
@@ -302,8 +311,8 @@ pub mod mutation {
     pub use net_lattice_model::route::RouteConfig;
     #[doc(inline)]
     pub use net_lattice_platform::{
-        AddressMutator, DnsMutator, InterfaceMutator, NeighborMutator, RouteMutator,
-        RouteReplaceOrder,
+        AddressMutator, DnsMutator, FirewallMutator, InterfaceMutator, NeighborMutator,
+        RouteMutator, RouteReplaceOrder,
     };
 }
 
@@ -336,7 +345,7 @@ use std::time::Instant;
 /// each trait it implements. [`LatticeBackend`] (a crate-local item, not a
 /// re-export) and [`CapabilityProvider`] (a cross-cutting root-only item,
 /// not a domain re-export) both resolve at the bare crate root; every other
-/// item re-exported in this module — [`CurrentState`] and the remaining 13
+/// item re-exported in this module — [`CurrentState`] and the remaining 15
 /// provider/mutator/event traits — resolves only through
 /// [`model`]/[`mutation`]/[`monitoring`] and here, not at the crate root.
 /// Application code that only consumes [`Lattice`] should
@@ -349,9 +358,9 @@ pub mod backend {
     pub use net_lattice_model::snapshot::CurrentState;
     pub use net_lattice_platform::{
         Addition, AdditionProvider, AddressMutator, AddressProvider, CapabilityProvider,
-        DnsMutator, DnsProvider, EventProvider, EventReceiver, EventSender, InterfaceMutator,
-        InterfaceProvider, NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
-        RouteReplaceOrder, SnapshotProvider,
+        DnsMutator, DnsProvider, EventProvider, EventReceiver, EventSender, FirewallMutator,
+        FirewallProvider, InterfaceMutator, InterfaceProvider, NeighborMutator, NeighborProvider,
+        RouteMutator, RouteProvider, RouteReplaceOrder, SnapshotProvider,
     };
     #[cfg(feature = "async")]
     pub use net_lattice_platform::{TokioEventProvider, TokioEventReceiver, TokioEventSender};
@@ -390,6 +399,7 @@ pub trait LatticeBackend:
     + NeighborMutator<StaticNeighbor = StaticNeighbor, NeighborEntry = NeighborEntry>
     + AddressProvider<InterfaceAddress = InterfaceAddress>
     + AddressMutator<NewInterfaceAddress = NewInterfaceAddress, InterfaceAddress = InterfaceAddress>
+    + FirewallMutator<FirewallPolicy = FirewallPolicy, FirewallRule = FirewallRule>
     + EventProvider<Event = Event, EventFilter = EventFilter>
     + AdditionProvider
     + CapabilityProvider
@@ -408,7 +418,8 @@ impl<B> LatticeBackend for B where
         + AddressMutator<
             NewInterfaceAddress = NewInterfaceAddress,
             InterfaceAddress = InterfaceAddress,
-        > + EventProvider<Event = Event, EventFilter = EventFilter>
+        > + FirewallMutator<FirewallPolicy = FirewallPolicy, FirewallRule = FirewallRule>
+        + EventProvider<Event = Event, EventFilter = EventFilter>
         + AdditionProvider
         + CapabilityProvider
 {
@@ -633,6 +644,30 @@ impl<B: LatticeBackend> Lattice<B> {
     /// Removes the observed interface address.
     pub fn remove_address(&self, address: InterfaceAddress) -> Result<()> {
         self.backend.remove_address(address)
+    }
+
+    /// Reads the managed native-firewall policy's rules directly from the
+    /// backend (a live kernel/engine dump on every shipped backend, not a
+    /// cache). Requires no capability; see [`Capability::FIREWALL_MUTATION`]
+    /// for mutation-side gating. Does not include
+    /// [`FirewallPolicy::default_verdict`] — that fact isn't part of this
+    /// provider's return type on any backend.
+    pub fn firewall_rules(&self) -> Result<Vec<FirewallRule>> {
+        self.backend.firewall_rules()
+    }
+
+    /// Atomically replaces the managed native-firewall policy with `policy`.
+    /// Requires [`Capability::FIREWALL_MUTATION`]. See
+    /// [`FirewallMutator::set_firewall_policy`] for the exact atomicity and
+    /// scope guarantees every backend gives this call.
+    pub fn set_firewall_policy(&self, policy: FirewallPolicy) -> Result<()> {
+        self.backend.set_firewall_policy(policy)
+    }
+
+    /// Clears the managed native-firewall policy back to an empty,
+    /// default-allow policy. Requires [`Capability::FIREWALL_MUTATION`].
+    pub fn clear_firewall_policy(&self) -> Result<()> {
+        self.backend.clear_firewall_policy()
     }
 
     /// Assembles a whole-system snapshot of every domain this crate models:
@@ -1666,6 +1701,34 @@ mod tests {
                 Err(Error::Unsupported)
             } else {
                 Ok(DnsConfig::new())
+            }
+        }
+    }
+
+    impl FirewallProvider for TestBackend {
+        type FirewallRule = FirewallRule;
+
+        fn firewall_rules(&self) -> Result<Vec<Self::FirewallRule>> {
+            Ok(Vec::new())
+        }
+    }
+
+    impl FirewallMutator for TestBackend {
+        type FirewallPolicy = FirewallPolicy;
+
+        fn set_firewall_policy(&self, _policy: Self::FirewallPolicy) -> Result<()> {
+            if self.fail_mutations {
+                Err(Error::InvalidState)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn clear_firewall_policy(&self) -> Result<()> {
+            if self.fail_mutations {
+                Err(Error::InvalidState)
+            } else {
+                Ok(())
             }
         }
     }

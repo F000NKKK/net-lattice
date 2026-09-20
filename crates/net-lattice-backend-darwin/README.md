@@ -11,11 +11,27 @@ native ioctls. It implements the generic `net-lattice-platform` contracts.
 - administrative-state and MTU configuration through `SIOCSIFFLAGS` and
   `SIOCSIFMTU`, with fresh observed-interface readback;
 - routing-socket monitoring and optional async delivery;
+- native-firewall (`pf`) policy management (`FirewallMutator`,
+  `Capability::FIREWALL_MUTATION`) — one managed `pf` anchor (`net_lattice`),
+  replaced atomically via `pf`'s own transaction ticket mechanism;
+  `FirewallProvider::firewall_rules` reads live from the kernel, not a
+  cache;
 - preservation of native error codes in the shared error model.
 
 Applications should normally use the `net-lattice` facade, which selects this
 backend automatically on macOS. Direct use is intended for backend integration
-and diagnostics.
+and diagnostics. Firewall policy management is reachable through the facade
+via `Lattice::firewall_rules`/`set_firewall_policy`/`clear_firewall_policy`.
+
+## Build requirements
+
+Firewall management uses raw `ioctl` calls on `/dev/pf` — no build-time
+system package is required, but see this crate's `firewall` module
+documentation for the real risk profile of this approach: there is no safe
+Rust wrapper for `pf`, and Apple does not ship the kernel-private
+`net/pfvar.h` header in the public SDK, so the ioctl structs are transcribed
+field-for-field from Apple's own published XNU source rather than a
+mismatched modern OpenBSD header.
 
 ## Direct usage
 
@@ -79,5 +95,8 @@ services. Interface configuration writes the real system interface and can
 apply MTU and administrative state independently. Static-neighbor remove
 reads the target first and refuses to delete a present entry that is not
 currently `Permanent`, so a dynamically learned ARP/NDP cache entry is never
-removed as a side effect of a static-removal request. Privileged tests run
-separately and must restore changed state.
+removed as a side effect of a static-removal request. Firewall policy
+replacement requires root; it is confined to the `net_lattice` anchor and
+never reads or writes rules configured by other tools (e.g. `pfctl` run by
+hand against a different anchor). Privileged tests run separately and must
+restore changed state.

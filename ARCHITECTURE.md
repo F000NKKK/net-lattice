@@ -790,6 +790,14 @@ not a realistic addition in the workspace's current roadmap, unlike
 - **Interface-address domain** (`ifaddr`): `InterfaceAddress`,
   `InterfaceAddressId` (`= Id<InterfaceAddress>`), `NewInterfaceAddress`.
 - **DNS domain** (`dns`): `DnsConfig`, `NewDnsConfig`.
+- **Firewall domain** (`firewall`, added stage 0.22, ADR-0017/`NL-A-19`):
+  `FirewallRule`, `FirewallPolicy`, `Direction`, `Protocol`, `PortRange`,
+  `Verdict`. Unlike the observed/desired split every other mutable domain
+  above uses, `FirewallRule`/`FirewallPolicy` serve both the read
+  (`FirewallProvider::firewall_rules`) and write
+  (`FirewallMutator::set_firewall_policy`) side — a native-firewall rule
+  carries no backend-synthesized identity that desired intent would need to
+  omit, unlike a route, address, or neighbor entry.
 - **MAC address** (`mac`): `MacAddress`.
 - **Address helpers** (`address`): `IpAddress`, `Network`.
 - **Snapshot** (`snapshot`): `CurrentState`.
@@ -820,7 +828,10 @@ under `net-lattice-core` above) and `RouteReplaceOrder`, which is defined in
   one pair per domain): `RouteProvider`/`RouteMutator`,
   `InterfaceProvider`/`InterfaceMutator`, `NeighborProvider`/
   `NeighborMutator`, `AddressProvider`/`AddressMutator`,
-  `DnsProvider`/`DnsMutator`.
+  `DnsProvider`/`DnsMutator`, `FirewallProvider`/`FirewallMutator`
+  (`FirewallMutator::set_firewall_policy` replaces the whole managed policy
+  atomically, unlike `RouteMutator`'s incremental add/remove — see
+  ADR-0017/`NL-A-19`).
 - `RouteMutator::add_route`, `RouteMutator::remove_route` — the two
   `Capability`-gated mutation methods.
 - **`RouteMutator::supports_route_metric`** and
@@ -834,8 +845,8 @@ under `net-lattice-core` above) and `RouteReplaceOrder`, which is defined in
   `NAMESPACES`, `ROUTE_MONITORING`, `DNS_MUTATION`,
   `INTERFACE_ADMIN_STATE`, `INTERFACE_MTU`, `INTERFACE_MONITORING`,
   `NEIGHBOR_MONITORING`, `ADDRESS_MONITORING`, `NEIGHBOR_MUTATION`,
-  `ROUTE_MUTATION`, and the composite `MONITORING` (the bitwise union of
-  the four `*_MONITORING` flags).
+  `ROUTE_MUTATION`, `FIREWALL_MUTATION`, and the composite `MONITORING`
+  (the bitwise union of the four `*_MONITORING` flags).
 - `CapabilityProvider` trait and its single method `capabilities`.
 - `EventProvider`, `EventReceiver`, `EventSender` (native change-event
   delivery contract).
@@ -865,26 +876,29 @@ a backend declare about itself" will miss these two methods.
   `CapabilityProvider` (from `net-lattice-platform`); `Lattice<B>`;
   `LatticeBackend`.
 - **`model` module** (observed/read-only domain types and read-provider
-  traits): `DnsConfig`, `InterfaceAddress`, `InterfaceAddressId`,
+  traits): `DnsConfig`, `Direction`, `FirewallRule`, `PortRange`,
+  `Protocol`, `Verdict`, `InterfaceAddress`, `InterfaceAddressId`,
   `AdminState`, `Interface`, `InterfaceId`, `InterfaceKind`,
   `OperationalState`, `MacAddress`, `NeighborEntry`, `NeighborId`,
   `NeighborState`, `Route`, `RouteId`, `CurrentState`, `IpAddress`,
-  `Network`, `AddressProvider`, `DnsProvider`, `InterfaceProvider`,
-  `NeighborProvider`, `RouteProvider`, `SnapshotProvider`.
+  `Network`, `AddressProvider`, `DnsProvider`, `FirewallProvider`,
+  `InterfaceProvider`, `NeighborProvider`, `RouteProvider`,
+  `SnapshotProvider`.
 - **`mutation` module** (mutation intent, plan/execution/report machinery,
   mutator traits, declarative `DesiredState`/`Diff`): `Cancellation`,
   `Compensation`, `ExecutionOptions`, `Snapshot`, `ApplyPlan`,
   `ApplyPlanReport`, `ApplyStep`, `ApplyStepOutcome`, `NonConvergentReason`,
   `DesiredState`, `AddressChange`, `Change`, `Diff`, `DnsChange`,
   `InterfaceDiff`, `NeighborChange`, `RouteChange`, `NewDnsConfig`,
-  `NewInterfaceAddress`, `DesiredAdminState`, `InterfaceConfig`, `Mutation`,
-  `MutationConfirmation`, `MutationExecutionPhase`, `MutationIdempotency`,
-  `MutationKind`, `MutationOperationReport`, `MutationOutcome`,
-  `MutationPlan`, `MutationPlanReport`, `MutationPrecondition`,
-  `MutationPreflight`, `MutationPrivilege`, `MutationReversibility`,
-  `MutationSemantics`, `MutationSnapshot`, `MutationStopReason`,
-  `RollbackStatus`, `StaticNeighbor`, `RouteConfig`, `AddressMutator`,
-  `DnsMutator`, `InterfaceMutator`, `NeighborMutator`, `RouteMutator`,
+  `FirewallPolicy`, `NewInterfaceAddress`, `DesiredAdminState`,
+  `InterfaceConfig`, `Mutation`, `MutationConfirmation`,
+  `MutationExecutionPhase`, `MutationIdempotency`, `MutationKind`,
+  `MutationOperationReport`, `MutationOutcome`, `MutationPlan`,
+  `MutationPlanReport`, `MutationPrecondition`, `MutationPreflight`,
+  `MutationPrivilege`, `MutationReversibility`, `MutationSemantics`,
+  `MutationSnapshot`, `MutationStopReason`, `RollbackStatus`,
+  `StaticNeighbor`, `RouteConfig`, `AddressMutator`, `DnsMutator`,
+  `FirewallMutator`, `InterfaceMutator`, `NeighborMutator`, `RouteMutator`,
   `RouteReplaceOrder`.
 - **`monitoring` module** (change events, filters, monitoring provider
   traits): `EventStream` (feature-gated `async`), `ChangeKind`, `Event`,
@@ -896,23 +910,31 @@ a backend declare about itself" will miss these two methods.
   `LatticeBackend`, `CurrentState`, `AddressMutator`, `AddressProvider`,
   `Addition`, `AdditionProvider`, `CapabilityProvider`, `DnsMutator`,
   `DnsProvider`, `EventProvider`, `EventReceiver`, `EventSender`,
-  `InterfaceMutator`, `InterfaceProvider`, `NeighborMutator`,
-  `NeighborProvider`, `RouteMutator`, `RouteProvider`, `RouteReplaceOrder`,
-  `SnapshotProvider`, plus feature-gated (`async`) `TokioEventProvider`,
-  `TokioEventReceiver`, `TokioEventSender`.
+  `FirewallMutator`, `FirewallProvider`, `InterfaceMutator`,
+  `InterfaceProvider`, `NeighborMutator`, `NeighborProvider`, `RouteMutator`,
+  `RouteProvider`, `RouteReplaceOrder`, `SnapshotProvider`, plus
+  feature-gated (`async`) `TokioEventProvider`, `TokioEventReceiver`,
+  `TokioEventSender`.
 - **`LatticeBackend`** — the compile-time bound a third-party backend must
   satisfy; its exact set of supertraits (`RouteProvider`/`RouteMutator`/
   `InterfaceProvider`/`InterfaceMutator`/`DnsMutator`/`NeighborProvider`/
-  `NeighborMutator`/`AddressProvider`/`AddressMutator`/`EventProvider`/
-  `AdditionProvider`/`CapabilityProvider`, each bound to the concrete
-  `net-lattice-model` type) is itself part of the frozen contract: widening
-  or narrowing it is a breaking change for every third-party backend
-  implementation. `AdditionProvider` was added as a required supertrait in
-  Stage 0.21 (ADR-0014); it is additive-safe for every existing and
-  third-party backend because both of its methods are default-provided, so
-  no existing implementation needed a code change to keep compiling.
+  `NeighborMutator`/`AddressProvider`/`AddressMutator`/`FirewallMutator`/
+  `EventProvider`/`AdditionProvider`/`CapabilityProvider`, each bound to the
+  concrete `net-lattice-model` type) is itself part of the frozen contract:
+  widening or narrowing it is a breaking change for every third-party
+  backend implementation. `AdditionProvider` was added as a required
+  supertrait in Stage 0.21 (ADR-0014); it is additive-safe for every
+  existing and third-party backend because both of its methods are
+  default-provided, so no existing implementation needed a code change to
+  keep compiling. `FirewallMutator` (which requires `FirewallProvider` as
+  its own supertrait) was added in stage 0.22 (ADR-0017/`NL-A-19`) — unlike
+  `AdditionProvider`, this **is** a breaking addition for any third-party
+  backend that predates stage 0.22, since neither trait has a
+  default-provided implementation; a pre-existing third-party backend must
+  implement both before it can satisfy `LatticeBackend` again.
 - **`Lattice<B>` public methods**: `routes`, `add_route`, `remove_route`,
   `interfaces`, `set_interface_config`, `dns_config`, `set_dns_config`,
+  `firewall_rules`, `set_firewall_policy`, `clear_firewall_policy`,
   `neighbors`, `add_static_neighbor`, `remove_static_neighbor`,
   `addresses`, `add_address`, `remove_address`, `current_state`, `apply`,
   `diff`, `validate_plan`, `snapshot_for_mutation`, `execute_plan`,

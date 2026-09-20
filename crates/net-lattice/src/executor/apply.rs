@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 
 use net_lattice_core::{Error, Result};
 use net_lattice_model::apply::{ApplyPlan, ApplyPlanReport, ApplyStep, ApplyStepOutcome};
+#[cfg(test)]
+use net_lattice_model::firewall::{FirewallPolicy, FirewallRule};
 use net_lattice_model::mutation::{
     MutationExecutionPhase, MutationOperationReport, MutationOutcome, MutationSnapshot,
     MutationStopReason, RollbackStatus,
@@ -23,6 +25,8 @@ use net_lattice_model::mutation::{
 use net_lattice_model::route::{Route, RouteConfig};
 use net_lattice_model::{Mutation, NonConvergentReason};
 use net_lattice_platform::{Capability, RouteReplaceOrder};
+#[cfg(test)]
+use net_lattice_platform::{FirewallMutator, FirewallProvider};
 
 use crate::executor::ExecutionOptions;
 use crate::{Lattice, LatticeBackend, PlanAccumulators};
@@ -760,6 +764,26 @@ mod tests {
         type NewDnsConfig = NewDnsConfig;
 
         fn set_dns_config(&self, _config: Self::NewDnsConfig) -> Result<Self::DnsConfig> {
+            Err(Error::Unsupported)
+        }
+    }
+
+    impl FirewallProvider for FakeRouteBackend {
+        type FirewallRule = FirewallRule;
+
+        fn firewall_rules(&self) -> Result<Vec<Self::FirewallRule>> {
+            Ok(Vec::new())
+        }
+    }
+
+    impl FirewallMutator for FakeRouteBackend {
+        type FirewallPolicy = FirewallPolicy;
+
+        fn set_firewall_policy(&self, _policy: Self::FirewallPolicy) -> Result<()> {
+            Err(Error::Unsupported)
+        }
+
+        fn clear_firewall_policy(&self) -> Result<()> {
             Err(Error::Unsupported)
         }
     }

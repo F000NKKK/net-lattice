@@ -12,11 +12,24 @@ generic `net-lattice-platform` contracts through native Windows APIs.
   readback after every successful native submission;
 - native route, interface, and unicast-address notifications with optional
   async delivery;
+- native-firewall (WFP) policy management (`FirewallMutator`,
+  `Capability::FIREWALL_MUTATION`) — filters added across the four
+  IPv4/IPv6 ALE layers, atomically replacing this crate's own managed
+  filter set; `FirewallProvider::firewall_rules` reads live from the
+  engine, not a cache;
 - preservation of Windows error codes in the shared error model.
 
 Applications should normally use the `net-lattice` facade, which selects this
 backend automatically on Windows. Direct use is intended for backend
-integration and diagnostics.
+integration and diagnostics. Firewall policy management is reachable through
+the facade via `Lattice::firewall_rules`/`set_firewall_policy`/
+`clear_firewall_policy`.
+
+## Build requirements
+
+Firewall management links against the Windows Filtering Platform via the
+`windows` crate's raw FFI bindings — no separate build-time system package
+is required beyond a normal Windows SDK toolchain.
 
 ## Direct usage
 
@@ -51,5 +64,8 @@ callback, so this backend advertises route/interface/address monitoring
 capabilities only and rejects neighbor or all-domain watcher requests before
 registration; this is unrelated to (and does not gate) static-neighbor
 mutation, which is a request/response native call rather than an event
-subscription. The facade does not synthesize events. Privileged tests run
-separately and must restore changed state.
+subscription. The facade does not synthesize events. Firewall policy
+replacement requires Administrator; it is confined to filters this crate's
+own WFP provider GUID owns and never reads or writes Windows Firewall's own
+rules or another application's WFP state. Privileged tests run separately
+and must restore changed state.

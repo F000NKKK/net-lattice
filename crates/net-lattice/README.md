@@ -11,6 +11,9 @@ Rust API. This is the application-facing Net Lattice crate.
   snapshot (routes, interfaces, neighbors, addresses, and DNS) assembled from
   the same per-domain reads, with zero extra backend code required;
 - imperative route, address, resolver, and static ARP/NDP neighbor mutation;
+- native-firewall policy management (`firewall_rules`/`set_firewall_policy`/
+  `clear_firewall_policy`) — atomic whole-policy replacement on Linux
+  (nftables), Windows (WFP), and macOS (`pf`);
 - partial interface MTU and administrative-state configuration;
 - filtered native change monitoring, plus an opt-in `watch_with_additions`
   entry point that merges native events with any backend-reported
@@ -181,6 +184,38 @@ fn main() -> Result<()> {
     Ok(())
 }
 ```
+
+## Firewall policy management
+
+`FirewallPolicy` is an ordered list of `FirewallRule`s plus a default
+verdict, evaluated first-match-wins. `set_firewall_policy` replaces the
+connected backend's entire managed policy atomically — there is no
+incremental add/remove, unlike routes or static neighbors. `firewall_rules`
+reads the policy's rules directly from the backend (a live kernel/engine
+dump on every shipped backend, not a cache).
+
+```rust,no_run
+use net_lattice::model::{Direction, FirewallRule, PortRange, Protocol, Verdict};
+use net_lattice::mutation::FirewallPolicy;
+use net_lattice::{Capability, Lattice, Result};
+
+fn main() -> Result<()> {
+    let lattice = Lattice::connect()?;
+    if lattice.supports(Capability::FIREWALL_MUTATION) {
+        let allow_dns = FirewallRule::new(Direction::Outbound, Verdict::Allow)
+            .with_protocol(Protocol::Udp)
+            .with_port(PortRange::single(53));
+        let policy = FirewallPolicy::new(Verdict::Deny).with_rule(allow_dns);
+        lattice.set_firewall_policy(policy)?;
+        println!("{:?}", lattice.firewall_rules()?);
+    }
+    Ok(())
+}
+```
+
+See `firewall_policy` for a runnable example and
+`net-lattice-backend-linux`'s `kill_switch` example for a more elaborate
+usage pattern built on this same API.
 
 ## Monitoring capabilities
 
