@@ -1162,69 +1162,24 @@ in this document.
   repository in the wider Lattice ecosystem, not this crate's roadmap; see
   README.md's "The Lattice ecosystem" section.
 
-## Incremental Delivery Plan
+## Roadmap
 
-The full model above is a target, not a starting point. Crates and modules
-are introduced only when there is real implementation work for them:
+1.0 is the current stable line: complete cross-platform inspection,
+monitoring, imperative mutation, ordered transactions, declarative apply,
+and native-firewall policy management, each with privileged regression
+coverage on Linux, Windows, and macOS. See "Frozen 1.0 Public API Surface"
+below for the audited inventory, and [CHANGELOG.md](CHANGELOG.md) for the
+dated history of how it got here.
 
-Rows through 0.22 (firewall) — and the 1.0 freeze/audit it gates — are
-implemented and available today; only the post-1.0 capability-domain rows
-(VLAN, VRF, namespaces) describe planned, not-yet-built work.
+Planned for 2.0+ — each independently large enough to need its own
+architecture pass, none a 1.0 prerequisite:
 
-| Stage | Scope |
-|-------|-------|
-| 0.1 | `net-lattice-core`, `net-lattice-ip`, `net-lattice-model` (`route` module only), `net-lattice-platform` (`RouteProvider`), `net-lattice-backend-linux` (routes via Netlink), `net-lattice` |
-| 0.2 | `net-lattice-backend-windows` (`RouteProvider`) |
-| 0.3 | `net-lattice-backend-darwin` (`RouteProvider`) |
-| 0.4 | `interface` module + `InterfaceProvider` across all backends |
-| 0.5 | `dns` module + `DnsProvider` across all backends |
-| 0.6 | `neighbor` module + `NeighborProvider` (ARP/NDP) across all backends |
-| 0.7 | `ifaddr` module + `AddressProvider` (IP addresses on interfaces) across all backends |
-| 0.8 | `event` module + synchronous `EventProvider`/`EventReceiver`; monitoring via Netlink multicast (Linux), PF_ROUTE (macOS), and IP Helper notifications (Windows). |
-| 0.9 | `NewInterfaceAddress` + `AddressMutator`; native IPv4/IPv6 address assignment/removal via Netlink (Linux), IP Helper (Windows), and address ioctls (macOS). |
-| 0.10 | Event semantics: bounded delivery, overflow/resynchronization, filtering, cancellation, and background-error propagation. |
-| 0.11 | Optional `net-lattice` `async` feature; `net-lattice-async` exposes one runtime-agnostic `EventStream`, while Linux (Tokio Netlink), Windows (IP Helper callbacks), and macOS (PF_ROUTE reader) deliver directly into bounded Tokio transports. |
-| 0.12 | Watcher API stabilization: composable object/domain filters applied before enqueueing, domain-specific monitoring-capability validation, and consistent synchronous/async filter semantics. `MONITORING` is the all-domain aggregate; a filter requiring an unavailable domain fails before native registration. |
-| 0.13 | DNS mutation with an intent/observed-state model: `NewDnsConfig` is applied through supported system mechanisms and the resulting `DnsConfig` is re-read on Linux, Windows, and macOS. |
-| 0.14 | Mutation operation model: inspectable `Mutation` values and ordered `MutationPlan`s for route/address/DNS mutations; explicit preconditions, idempotency, privilege, confirmation, partial-application, and reversibility classifications. Includes side-effect-free `MutationPreflight` analysis plus typed `MutationOutcome`, `MutationPlanReport`, and `RollbackStatus` contracts for executor reporting; plans themselves retain no execution or rollback side effects. |
-| 0.15 | Transaction execution baseline: runtime capability and object-precondition preflight via `Lattice::validate_plan`, provider-backed `MutationSnapshot` capture through `snapshot_for_mutation`, ordered submission through `Lattice::execute_plan` configured by `ExecutionOptions`, per-operation outcomes, phase/timing diagnostics, first-failure stopping, operation-boundary cancellation, caller-defined prior-state capture, and an explicitly supplied reverse-order compensator. Ignored native facade route round-trip and compensation scenarios run in each privileged CI job; DNS partial-application integration remains intentionally non-destructive. |
-| 0.16 | Interface configuration: separate desired `InterfaceConfig`, independent admin-state/MTU capability gates, read-after-write mutation on Linux/Windows/macOS, typed executor snapshots, native interface-change event mappings, and privileged submission/readback/restoration checks. Destructive end-to-end event proof remains isolated-topology follow-up. |
-| 0.17 | Neighbor mutation plus IPv6 DNS parity and isolated cross-platform topology acceptance for destructive route/address/neighbor and facade flows. |
-| 0.18 | Snapshot foundation: `CurrentState` assembled consistently from the implemented providers, with snapshot scope, consistency, and partial-read semantics made explicit. |
-| 0.19 | Declarative model and diff: `DesiredState` configuration types remain distinct from observed types; produce an inspectable `Diff` without applying it. |
-| 0.20 | Declarative apply: compile a `Diff` into an `ApplyPlan`, execute it through the transaction engine, and report convergence, non-convergence, and compensation results. |
-| 0.21 | Pre-1.0 hardening: freeze the core model, provider extension contracts, identity rules, capability meanings, event guarantees, and platform support matrix; complete cross-platform privileged regression coverage and migration guidance. Done — see "Frozen 1.0 Public API Surface" below for the resulting inventory. |
-| 0.22 | Firewall: `FirewallRule`/`FirewallPolicy` model, `FirewallProvider`/`FirewallMutator` platform contract, and native backends on Linux (nftables via `nftnl`), Windows (WFP), and macOS (`pf` via raw `/dev/pf` ioctl) — each verified with a passing privileged native round-trip test on its own platform's CI runner. See ADR-0017 (`NL-A-19`). Done. |
-| 1.0 | Stable cross-platform foundation for the implemented inspection, monitoring, imperative mutation, transactions, declarative apply, and firewall contracts. Gated by the 0.21 compatibility audit, not by implementing every future capability domain — that audit is complete and 1.0 is ready for its first stable release. |
-| 2.0+ | Remaining capability domains, each introduced only with its read model, intent model, mutation semantics, events where the OS supports them, capabilities, and all-platform tests: VLAN, VRF, and namespaces. Deferred to the post-1.0 line rather than a pre-1.0 stage, since none are prerequisites for 1.0 and each is independently large enough to warrant its own major-line design pass. Tunnel interface management is out of scope for this repository (see the ecosystem's `tunnel-lattice` crate). |
+| Domain | Scope |
+|--------|-------|
+| VLAN | tagged-interface read/intent/mutation model, consistent across all three backends |
+| VRF | routing-table isolation model and per-backend binding |
+| Namespaces | process/network namespace isolation — not symmetric across Linux/Windows/macOS, needs its own design pass before implementation starts |
 
-Each stage is expected to validate the architecture before the next is
-started; earlier stages may inform adjustments to later ones.
-
-### Route to 1.0
-
-The stage numbers above are delivery boundaries, not a promise that every
-heading ships in one release. A stage may be split when platform behavior or
-the public contract needs independent validation. Conversely, a small
-hardening release may be issued between stages without changing this plan.
-
-The facade exposes complete read APIs; imperative route, address, DNS,
-interface (`InterfaceMutator`/`InterfaceConfig`), and static-neighbor
-(`NeighborMutator`/`StaticNeighbor`) mutation, each with its own intent type
-distinct from observed state; the ordered transaction executor
-(`Lattice::execute_plan`/`execute_apply_plan`); and the declarative layer
-(`DesiredState`, `Diff::compute`, `ApplyPlan::compile`, `Lattice::apply`)
-defined in terms of explicit operations rather than by reusing observed
-objects as desired state. This is the stable configuration platform the 1.0
-boundary requires.
-
-The 1.0 boundary intentionally does not require VLAN, VRF, or namespace
-support — those are deferred to the post-1.0 (2.0+) line. Firewall support
-(stage 0.22) landed before 1.0 as a complete, independently verified
-capability domain, but was never a 1.0 prerequisite either; the boundary
-requires only that every API already advertised as stable has a documented
-cross-platform contract, truthful capability and privilege behavior,
-bounded event semantics, deterministic transaction reporting, and
-privileged regression coverage on each supported platform — see "Frozen 1.0
-Public API Surface" above for the audited inventory that satisfies this
-requirement.
+Tunnel interface management is out of scope for this repository entirely;
+see [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) in the
+wider Lattice ecosystem.
