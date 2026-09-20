@@ -946,25 +946,13 @@ doc-комментарий `Capability` в поисках "что backend объ
   `SnapshotProvider`, а также за флагом функции `async`:
   `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
 - **`LatticeBackend`** — ограничение времени компиляции, которому должен
-  соответствовать сторонний backend; его точный набор supertraits
-  (`RouteProvider`/`RouteMutator`/`InterfaceProvider`/`InterfaceMutator`/
-  `DnsMutator`/`NeighborProvider`/`NeighborMutator`/`AddressProvider`/
-  `AddressMutator`/`FirewallMutator`/`EventProvider`/`AdditionProvider`/
-  `CapabilityProvider`, каждый привязан к конкретному типу
-  `net-lattice-model`) сам является частью замороженного контракта:
-  расширение или сужение этого набора — breaking change для каждой
-  сторонней реализации backend'а. `AdditionProvider` был добавлен как
-  обязательный supertrait на этапе 0.21 (ADR-0014); это additive-safe
-  изменение для любого существующего и стороннего backend'а, поскольку
-  оба его метода имеют реализацию по умолчанию — ни одной существующей
-  реализации не потребовалось изменение кода, чтобы продолжить
-  компилироваться. `FirewallMutator` (который требует `FirewallProvider`
-  как собственный supertrait) был добавлен на этапе 0.22
-  (ADR-0017) — в отличие от `AdditionProvider`, это **является**
-  breaking-добавлением для любого стороннего backend'а, созданного до
-  этапа 0.22, поскольку ни один из этих traits не имеет реализации по
-  умолчанию; существующий сторонний backend должен реализовать оба, чтобы
-  снова удовлетворять `LatticeBackend`.
+  соответствовать сторонний backend: `RouteProvider`/`RouteMutator`/
+  `InterfaceProvider`/`InterfaceMutator`/`DnsMutator`/`NeighborProvider`/
+  `NeighborMutator`/`AddressProvider`/`AddressMutator`/`FirewallMutator`/
+  `EventProvider`/`AdditionProvider`/`CapabilityProvider`, каждый привязан к
+  конкретному типу `net-lattice-model`. Этот набор — часть замороженного
+  контракта; его изменение — breaking change для каждого стороннего
+  backend'а.
 - **Публичные методы `Lattice<B>`**: `routes`, `add_route`,
   `remove_route`, `interfaces`, `set_interface_config`, `dns_config`,
   `set_dns_config`, `firewall_rules`, `set_firewall_policy`,
