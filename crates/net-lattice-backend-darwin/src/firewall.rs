@@ -917,6 +917,77 @@ mod tests {
         assert_eq!(xport.port[1], 2000u16.to_be());
     }
 
+    /// Exercises the `build_pf_rule`/`decode_pf_rule` pair entirely in
+    /// process memory — no `/dev/pf`, no ioctl, no privilege — by building
+    /// a `pf_rule` for a [`FirewallRule`] and decoding it straight back,
+    /// asserting the two are equal. This is the same transformation the
+    /// live kernel round trip exercises, just without the kernel: it
+    /// catches a `build`/`decode` mismatch (e.g. a field one side reads
+    /// that the other never writes) that a compile-only check cannot, at
+    /// the cost of not proving the real ioctl ABI itself is correct — see
+    /// the privileged test below for that half of the risk.
+    #[test]
+    fn build_then_decode_pf_rule_round_trips_every_match_shape() {
+        use net_lattice_ip::{
+            Ipv4Address, Ipv4Network, Ipv4PrefixLength, Ipv6Address, Ipv6Network, Ipv6PrefixLength,
+        };
+
+        let loopback_index = unsafe { libc::if_nametoindex(c"lo0".as_ptr()) };
+        assert_ne!(loopback_index, 0, "this host has no `lo0` interface");
+
+        let cases = [
+            FirewallRule::new(Direction::Outbound, Verdict::Allow)
+                .with_interface_index(loopback_index),
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_remote(Network::V4(
+                Ipv4Network::new(
+                    Ipv4Address::new(198, 51, 100, 0),
+                    Ipv4PrefixLength::new(24).unwrap(),
+                ),
+            )),
+            FirewallRule::new(Direction::Inbound, Verdict::Deny).with_remote(Network::V6(
+                Ipv6Network::new(
+                    Ipv6Address::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0]),
+                    Ipv6PrefixLength::new(32).unwrap(),
+                ),
+            )),
+            FirewallRule::new(Direction::Outbound, Verdict::Allow)
+                .with_protocol(Protocol::Udp)
+                .with_port(PortRange::single(53)),
+            FirewallRule::new(Direction::Inbound, Verdict::Allow)
+                .with_protocol(Protocol::Tcp)
+                .with_port(PortRange::new(1000, 2000)),
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_protocol(Protocol::Icmp),
+        ];
+
+        for rule in cases {
+            let built = build_pf_rule(&rule);
+            assert_eq!(
+                decode_pf_rule(&built),
+                Some(rule),
+                "round trip for {rule:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn decode_pf_rule_skips_the_default_verdict_catch_all_rule() {
+        let catch_all = default_rule(Verdict::Deny);
+        assert_eq!(decode_pf_rule(&catch_all), None);
+    }
+
+    #[test]
+    fn decode_pf_rule_rejects_an_unrecognized_action() {
+        let mut rule = pfvar::PfRule {
+            direction: pfvar::PF_OUT,
+            action: 0xff,
+            ..Default::default()
+        };
+        assert_eq!(decode_pf_rule(&rule), None);
+
+        rule.action = pfvar::PF_PASS;
+        assert!(decode_pf_rule(&rule).is_some());
+    }
+
     /// Requires running as root on a real macOS host with `pf` present
     /// (present on every supported macOS version, but not necessarily
     /// enabled by default). Not run by default for the same reason as

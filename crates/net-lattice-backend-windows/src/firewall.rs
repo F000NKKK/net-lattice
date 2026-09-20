@@ -810,6 +810,84 @@ mod tests {
         assert_eq!(layers_for_rule(&rule), vec![(Direction::Outbound, true)]);
     }
 
+    /// Exercises `build_rule_conditions`/`decode_filter` entirely in
+    /// process memory — no WFP engine, no privilege — by building a
+    /// filter's condition list for a [`FirewallRule`], wrapping it in a
+    /// bare `FWPM_FILTER0`, and decoding it straight back. Catches a
+    /// `build`/`decode` mismatch a compile-only check cannot, at the cost
+    /// of not proving the real WFP condition-value encoding itself is
+    /// correct — see the privileged test below for that half of the risk.
+    #[test]
+    fn build_then_decode_filter_round_trips_every_match_shape() {
+        use net_lattice_ip::{
+            Ipv4Address, Ipv4Network, Ipv4PrefixLength, Ipv6Address, Ipv6Network, Ipv6PrefixLength,
+        };
+
+        let cases = [
+            (
+                FirewallRule::new(Direction::Outbound, Verdict::Allow).with_interface_index(1),
+                false,
+            ),
+            (
+                FirewallRule::new(Direction::Outbound, Verdict::Deny).with_remote(Network::V4(
+                    Ipv4Network::new(
+                        Ipv4Address::new(198, 51, 100, 0),
+                        Ipv4PrefixLength::new(24).unwrap(),
+                    ),
+                )),
+                false,
+            ),
+            (
+                FirewallRule::new(Direction::Inbound, Verdict::Deny).with_remote(Network::V6(
+                    Ipv6Network::new(
+                        Ipv6Address::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0]),
+                        Ipv6PrefixLength::new(32).unwrap(),
+                    ),
+                )),
+                true,
+            ),
+            (
+                FirewallRule::new(Direction::Outbound, Verdict::Allow)
+                    .with_protocol(Protocol::Udp)
+                    .with_port(PortRange::single(53)),
+                false,
+            ),
+            (
+                FirewallRule::new(Direction::Inbound, Verdict::Allow)
+                    .with_protocol(Protocol::Tcp)
+                    .with_port(PortRange::new(1000, 2000)),
+                false,
+            ),
+            (
+                FirewallRule::new(Direction::Outbound, Verdict::Deny).with_protocol(Protocol::Icmp),
+                false,
+            ),
+        ];
+
+        for (rule, is_v6) in cases {
+            let built = build_rule_conditions(&rule, is_v6).expect("build conditions");
+            let filter = FWPM_FILTER0 {
+                weight: weight_value(7),
+                numFilterConditions: built.conditions.len() as u32,
+                filterCondition: built.conditions.as_ptr() as *mut FWPM_FILTER_CONDITION0,
+                action: wfp_action(rule.verdict),
+                ..Default::default()
+            };
+            let decoded = decode_filter(&filter, rule.direction);
+            assert_eq!(decoded, Some((7, rule)), "round trip for {rule:?}");
+        }
+    }
+
+    #[test]
+    fn decode_filter_skips_the_weight_zero_default_verdict_filter() {
+        let filter = FWPM_FILTER0 {
+            weight: weight_value(0),
+            action: wfp_action(Verdict::Deny),
+            ..Default::default()
+        };
+        assert_eq!(decode_filter(&filter, Direction::Outbound), None);
+    }
+
     /// Requires running as Administrator on a real Windows host with the
     /// Base Filtering Engine service running (the default). Not run by
     /// default for the same reason as this crate's other privileged tests.

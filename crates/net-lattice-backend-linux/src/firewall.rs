@@ -691,6 +691,69 @@ mod tests {
         assert_eq!(&mask[2..], &[0x00; 14]);
     }
 
+    /// Exercises `add_expressions`/`decode_rule` entirely in process
+    /// memory — no `NETLINK_NETFILTER` socket, no `CAP_NET_ADMIN` — by
+    /// building a rule's expression list for a [`FirewallRule`], writing
+    /// it to a netlink message buffer (`Rule::write`, the same
+    /// serialization `apply_policy` sends, minus the actual `send`), and
+    /// parsing that buffer back with `nftnl_rule_nlmsg_parse` (the same
+    /// parse `read_chain_rules` uses on real kernel replies) before
+    /// decoding it. Catches a `write`/`decode` mismatch a compile-only
+    /// check cannot, at the cost of not proving the real kernel accepts
+    /// and stores these expressions the same way — see the privileged
+    /// test below for that half of the risk.
+    #[test]
+    fn build_then_decode_rule_round_trips_every_match_shape() {
+        use net_lattice_ip::{
+            Ipv4Address, Ipv4Network, Ipv4PrefixLength, Ipv6Address, Ipv6Network, Ipv6PrefixLength,
+        };
+        use nftnl::NlMsg;
+
+        let cases = [
+            FirewallRule::new(Direction::Outbound, Verdict::Allow).with_interface_index(1),
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_remote(Network::V4(
+                Ipv4Network::new(
+                    Ipv4Address::new(198, 51, 100, 0),
+                    Ipv4PrefixLength::new(24).unwrap(),
+                ),
+            )),
+            FirewallRule::new(Direction::Inbound, Verdict::Deny).with_remote(Network::V6(
+                Ipv6Network::new(
+                    Ipv6Address::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0]),
+                    Ipv6PrefixLength::new(32).unwrap(),
+                ),
+            )),
+            FirewallRule::new(Direction::Outbound, Verdict::Allow)
+                .with_protocol(Protocol::Udp)
+                .with_port(PortRange::single(53)),
+            FirewallRule::new(Direction::Inbound, Verdict::Allow)
+                .with_protocol(Protocol::Tcp)
+                .with_port(PortRange::new(1000, 2000)),
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_protocol(Protocol::Icmp),
+        ];
+
+        for config in cases {
+            let table = Table::new(TABLE_NAME, ProtoFamily::Inet);
+            let chain = Chain::new(chain_name(config.direction), &table);
+            let mut rule = Rule::new(&chain);
+            add_expressions(&mut rule, &config);
+
+            let mut buf = vec![0u8; nftnl::nft_nlmsg_maxsize() as usize];
+            unsafe { rule.write(buf.as_mut_ptr().cast(), 1, MsgType::Add) };
+
+            let parsed = unsafe { sys::nftnl_rule_alloc() };
+            assert!(!parsed.is_null());
+            let nlh = buf.as_ptr().cast::<libc::nlmsghdr>();
+            let status = unsafe { sys::nftnl_rule_nlmsg_parse(nlh, parsed) };
+            assert_eq!(status, 0, "nlmsg_parse failed for {config:?}");
+
+            let decoded = decode_rule(parsed, config.direction);
+            unsafe { sys::nftnl_rule_free(parsed) };
+
+            assert_eq!(decoded, Some(config), "round trip for {config:?}");
+        }
+    }
+
     #[test]
     fn protocol_number_disambiguates_icmp_by_remote_family() {
         use net_lattice_ip::{Ipv6Address, Ipv6Network, Ipv6PrefixLength};
