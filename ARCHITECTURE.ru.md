@@ -813,6 +813,15 @@ Stages 0.15–0.20 построили transactions и declarative apply пове
 - **Домен адресов интерфейса** (`ifaddr`): `InterfaceAddress`,
   `InterfaceAddressId` (`= Id<InterfaceAddress>`), `NewInterfaceAddress`.
 - **Домен DNS** (`dns`): `DnsConfig`, `NewDnsConfig`.
+- **Домен firewall** (`firewall`, добавлен в стадии 0.22, ADR-0017/`NL-A-19`):
+  `FirewallRule`, `FirewallPolicy`, `Direction`, `Protocol`, `PortRange`,
+  `Verdict`. В отличие от разделения observed/desired, используемого всеми
+  остальными изменяемыми доменами выше, `FirewallRule`/`FirewallPolicy`
+  обслуживают обе стороны — чтение (`FirewallProvider::firewall_rules`) и
+  запись (`FirewallMutator::set_firewall_policy`) — поскольку правило
+  native-firewall не несёт синтезированного backend'ом идентификатора,
+  который desired-intent пришлось бы опускать, в отличие от маршрута,
+  адреса или записи соседа.
 - **MAC-адрес** (`mac`): `MacAddress`.
 - **Вспомогательные типы адресов** (`address`): `IpAddress`, `Network`.
 - **Снимок состояния** (`snapshot`): `CurrentState`.
@@ -845,7 +854,10 @@ Stages 0.15–0.20 построили transactions и declarative apply пове
   привилегиями, по одной паре на домен): `RouteProvider`/`RouteMutator`,
   `InterfaceProvider`/`InterfaceMutator`, `NeighborProvider`/
   `NeighborMutator`, `AddressProvider`/`AddressMutator`,
-  `DnsProvider`/`DnsMutator`.
+  `DnsProvider`/`DnsMutator`, `FirewallProvider`/`FirewallMutator`
+  (`FirewallMutator::set_firewall_policy` атомарно заменяет всю managed
+  policy целиком, в отличие от инкрементального add/remove у
+  `RouteMutator` — см. ADR-0017/`NL-A-19`).
 - `RouteMutator::add_route`, `RouteMutator::remove_route` — два метода
   мутации, зависящих от `Capability`.
 - **`RouteMutator::supports_route_metric`** и
@@ -860,8 +872,8 @@ Stages 0.15–0.20 построили transactions и declarative apply пове
   `NAMESPACES`, `ROUTE_MONITORING`, `DNS_MUTATION`,
   `INTERFACE_ADMIN_STATE`, `INTERFACE_MTU`, `INTERFACE_MONITORING`,
   `NEIGHBOR_MONITORING`, `ADDRESS_MONITORING`, `NEIGHBOR_MUTATION`,
-  `ROUTE_MUTATION` и составной `MONITORING` (побитовое объединение четырёх
-  флагов `*_MONITORING`).
+  `ROUTE_MUTATION`, `FIREWALL_MUTATION` и составной `MONITORING`
+  (побитовое объединение четырёх флагов `*_MONITORING`).
 - Trait `CapabilityProvider` и его единственный метод `capabilities`.
 - `EventProvider`, `EventReceiver`, `EventSender` (контракт доставки
   нативных событий изменения).
@@ -893,29 +905,30 @@ doc-комментарий `Capability` в поисках "что backend объ
   `Capability`, `CapabilityProvider` (из `net-lattice-platform`);
   `Lattice<B>`; `LatticeBackend`.
 - **Модуль `model`** (наблюдаемые доменные типы только для чтения и
-  read-provider traits): `DnsConfig`, `InterfaceAddress`,
+  read-provider traits): `DnsConfig`, `Direction`, `FirewallRule`,
+  `PortRange`, `Protocol`, `Verdict`, `InterfaceAddress`,
   `InterfaceAddressId`, `AdminState`, `Interface`, `InterfaceId`,
   `InterfaceKind`, `OperationalState`, `MacAddress`, `NeighborEntry`,
   `NeighborId`, `NeighborState`, `Route`, `RouteId`, `CurrentState`,
   `IpAddress`, `Network`, `AddressProvider`, `DnsProvider`,
-  `InterfaceProvider`, `NeighborProvider`, `RouteProvider`,
-  `SnapshotProvider`.
+  `FirewallProvider`, `InterfaceProvider`, `NeighborProvider`,
+  `RouteProvider`, `SnapshotProvider`.
 - **Модуль `mutation`** (намерение мутации, машинерия
   плана/выполнения/отчёта, mutator traits, декларативная пара
   `DesiredState`/`Diff`): `Cancellation`, `Compensation`,
   `ExecutionOptions`, `Snapshot`, `ApplyPlan`, `ApplyPlanReport`,
   `ApplyStep`, `ApplyStepOutcome`, `NonConvergentReason`, `DesiredState`,
   `AddressChange`, `Change`, `Diff`, `DnsChange`, `InterfaceDiff`,
-  `NeighborChange`, `RouteChange`, `NewDnsConfig`, `NewInterfaceAddress`,
-  `DesiredAdminState`, `InterfaceConfig`, `Mutation`,
-  `MutationConfirmation`, `MutationExecutionPhase`, `MutationIdempotency`,
-  `MutationKind`, `MutationOperationReport`, `MutationOutcome`,
-  `MutationPlan`, `MutationPlanReport`, `MutationPrecondition`,
-  `MutationPreflight`, `MutationPrivilege`, `MutationReversibility`,
-  `MutationSemantics`, `MutationSnapshot`, `MutationStopReason`,
-  `RollbackStatus`, `StaticNeighbor`, `RouteConfig`, `AddressMutator`,
-  `DnsMutator`, `InterfaceMutator`, `NeighborMutator`, `RouteMutator`,
-  `RouteReplaceOrder`.
+  `NeighborChange`, `RouteChange`, `NewDnsConfig`, `FirewallPolicy`,
+  `NewInterfaceAddress`, `DesiredAdminState`, `InterfaceConfig`,
+  `Mutation`, `MutationConfirmation`, `MutationExecutionPhase`,
+  `MutationIdempotency`, `MutationKind`, `MutationOperationReport`,
+  `MutationOutcome`, `MutationPlan`, `MutationPlanReport`,
+  `MutationPrecondition`, `MutationPreflight`, `MutationPrivilege`,
+  `MutationReversibility`, `MutationSemantics`, `MutationSnapshot`,
+  `MutationStopReason`, `RollbackStatus`, `StaticNeighbor`, `RouteConfig`,
+  `AddressMutator`, `DnsMutator`, `FirewallMutator`, `InterfaceMutator`,
+  `NeighborMutator`, `RouteMutator`, `RouteReplaceOrder`.
 - **Модуль `monitoring`** (события изменений, фильтры, monitoring
   provider traits): `EventStream` (за флагом функции `async`),
   `ChangeKind`, `Event`, `EventDomain`, `EventFilter`, `TokioEventProvider`
@@ -927,26 +940,35 @@ doc-комментарий `Capability` в поисках "что backend объ
   `CapabilityProvider`): `LatticeBackend`, `CurrentState`,
   `AddressMutator`, `AddressProvider`, `Addition`, `AdditionProvider`,
   `CapabilityProvider`, `DnsMutator`, `DnsProvider`, `EventProvider`,
-  `EventReceiver`, `EventSender`, `InterfaceMutator`, `InterfaceProvider`,
-  `NeighborMutator`, `NeighborProvider`, `RouteMutator`, `RouteProvider`,
-  `RouteReplaceOrder`, `SnapshotProvider`, а также за флагом функции
-  `async`: `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
+  `EventReceiver`, `EventSender`, `FirewallMutator`, `FirewallProvider`,
+  `InterfaceMutator`, `InterfaceProvider`, `NeighborMutator`,
+  `NeighborProvider`, `RouteMutator`, `RouteProvider`, `RouteReplaceOrder`,
+  `SnapshotProvider`, а также за флагом функции `async`:
+  `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
 - **`LatticeBackend`** — ограничение времени компиляции, которому должен
   соответствовать сторонний backend; его точный набор supertraits
   (`RouteProvider`/`RouteMutator`/`InterfaceProvider`/`InterfaceMutator`/
   `DnsMutator`/`NeighborProvider`/`NeighborMutator`/`AddressProvider`/
-  `AddressMutator`/`EventProvider`/`AdditionProvider`/`CapabilityProvider`,
-  каждый привязан к конкретному типу `net-lattice-model`) сам является
-  частью замороженного контракта: расширение или сужение этого набора —
-  breaking change для каждой сторонней реализации backend'а.
-  `AdditionProvider` был добавлен как обязательный supertrait на этапе
-  0.21 (ADR-0014); это additive-safe изменение для любого существующего и
-  стороннего backend'а, поскольку оба его метода имеют реализацию по
-  умолчанию — ни одной существующей реализации не потребовалось изменение
-  кода, чтобы продолжить компилироваться.
+  `AddressMutator`/`FirewallMutator`/`EventProvider`/`AdditionProvider`/
+  `CapabilityProvider`, каждый привязан к конкретному типу
+  `net-lattice-model`) сам является частью замороженного контракта:
+  расширение или сужение этого набора — breaking change для каждой
+  сторонней реализации backend'а. `AdditionProvider` был добавлен как
+  обязательный supertrait на этапе 0.21 (ADR-0014); это additive-safe
+  изменение для любого существующего и стороннего backend'а, поскольку
+  оба его метода имеют реализацию по умолчанию — ни одной существующей
+  реализации не потребовалось изменение кода, чтобы продолжить
+  компилироваться. `FirewallMutator` (который требует `FirewallProvider`
+  как собственный supertrait) был добавлен на этапе 0.22
+  (ADR-0017/`NL-A-19`) — в отличие от `AdditionProvider`, это **является**
+  breaking-добавлением для любого стороннего backend'а, созданного до
+  этапа 0.22, поскольку ни один из этих traits не имеет реализации по
+  умолчанию; существующий сторонний backend должен реализовать оба, чтобы
+  снова удовлетворять `LatticeBackend`.
 - **Публичные методы `Lattice<B>`**: `routes`, `add_route`,
   `remove_route`, `interfaces`, `set_interface_config`, `dns_config`,
-  `set_dns_config`, `neighbors`, `add_static_neighbor`,
+  `set_dns_config`, `firewall_rules`, `set_firewall_policy`,
+  `clear_firewall_policy`, `neighbors`, `add_static_neighbor`,
   `remove_static_neighbor`, `addresses`, `add_address`, `remove_address`,
   `current_state`, `apply`, `diff`, `validate_plan`,
   `snapshot_for_mutation`, `execute_plan`, `execute_apply_plan`,
