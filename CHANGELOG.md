@@ -7,17 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-09-18
+## [0.21.2] - 2026-09-20
+
+### Fixed
+
+- `net-lattice-backend-linux`: `.match_name(name.into())` no longer
+  type-checked against rtnetlink 0.23's generic `match_name<S:
+  Into<String>>` (ambiguous `S`) after the rtnetlink dependency bump.
+  `name` is already `&str`, which satisfies the bound directly; removed
+  the redundant `.into()`.
+- `net-lattice`: an unused-variable warning in
+  `Lattice::validate_apply_plan` (`ApplyStep::ReplaceRoute { old, new }`
+  never read `old`) broke `-D warnings` on every platform's CI.
+- `net-lattice-model::Diff::compute`: fixed a duplicate-natural-key
+  deduplication regression across all four affected domains
+  (routes/interfaces/neighbors/addresses) introduced while making diff
+  output order deterministic. The prior fix compared each candidate
+  entry's *value* against the map's stored last-one-wins value to decide
+  whether to emit it; when two duplicate entries sharing a key were also
+  value-equal (guaranteed for routes, since a route's natural key is its
+  whole value), every duplicate matched and was emitted instead of only
+  the last one. Fixed by tracking each key's last occurrence *index*
+  instead, independent of whether duplicate values happen to be equal.
+  Caller order is still preserved for the surviving entries.
+
+## [1.0.0] - Pending
+
+Not yet published. Planned first stable release of `net-lattice`,
+`net-lattice-core`, `net-lattice-ip`, `net-lattice-model`,
+`net-lattice-platform`, `net-lattice-async`, and the
+`net-lattice-backend-{linux,windows,darwin}` platform backends on
+crates.io. The public API is frozen per the "Frozen 1.0 Public API
+Surface" audit in `ARCHITECTURE.md`; within the `1.x` line, additive
+changes will ship as minor releases, compatible fixes as patch releases,
+and a breaking change will require an explicit major version bump.
 
 ### Added
 
-- First stable release of `net-lattice`, `net-lattice-core`, `net-lattice-ip`,
-  `net-lattice-model`, `net-lattice-platform`, `net-lattice-async`, and the
-  `net-lattice-backend-{linux,windows,darwin}` platform backends on
-  crates.io. The public API is frozen per the "Frozen 1.0 Public API
-  Surface" audit in `ARCHITECTURE.md`; within the `1.x` line, additive
-  changes ship as minor releases, compatible fixes as patch releases, and a
-  breaking change requires an explicit major version bump.
 - Stage 1.0 public-API freeze audit and rustdoc completeness: documented
   every remaining public struct/enum field, associated type, trait method,
   and module across `net-lattice-core`, `net-lattice-ip`,
