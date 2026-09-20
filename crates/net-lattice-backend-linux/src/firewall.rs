@@ -19,19 +19,42 @@
 //! (`libmnl0`/`libnftnl11` or newer) must be present wherever the resulting
 //! binary runs. This is a build-time requirement only; it does not affect
 //! the crate's runtime portability beyond requiring those shared libraries.
+//!
+//! [`FirewallProvider::firewall_rules`] reads the managed table's rules
+//! directly from the kernel (`NFT_MSG_GETRULE`, dumped per chain) rather
+//! than serving a cached copy of the last-applied policy, so it reflects
+//! out-of-band changes (e.g. `nft` run by hand against the same table).
+//! The `nftnl` crate itself only supports building/sending rules, not
+//! parsing a kernel reply back into typed expressions, so this module talks
+//! to the lower-level `nftnl_sys` bindings directly for the read path —
+//! walking each rule's expression list (`nftnl_expr_iter_*`) and decoding
+//! only the fixed expression shapes this module itself ever writes (see
+//! `add_expressions`/`add_remote_match`/`add_port_match`); an unrecognized
+//! expression is skipped rather than treated as a decode failure, since a
+//! future-modified rule shape here should degrade gracefully, not panic.
+//! One real, unavoidable limitation: `inbound`/`outbound` are separate
+//! nftables chains, so the original [`FirewallPolicy::rules`] list order is
+//! only preserved *within* each direction, not across directions that were
+//! interleaved in the caller's original list — [`FirewallProvider::firewall_rules`]
+//! returns every inbound rule (in original order) followed by every
+//! outbound rule (in original order), not necessarily the caller's exact
+//! interleaving.
 
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::io;
 
 use net_lattice_core::{Error, PlatformErrorCode, Result};
+use net_lattice_ip::{Ipv4Network, Ipv4PrefixLength, Ipv6Network, Ipv6PrefixLength};
 use net_lattice_model::Network;
-use net_lattice_model::firewall::{Direction, FirewallPolicy, FirewallRule, Protocol, Verdict};
+use net_lattice_model::firewall::{
+    Direction, FirewallPolicy, FirewallRule, PortRange, Protocol, Verdict,
+};
 use net_lattice_platform::{FirewallMutator, FirewallProvider};
 use nftnl::expr::{
     Bitwise, Cmp, CmpOp, Ipv4HeaderField, Ipv6HeaderField, Meta, NetworkHeaderField, Payload,
     TcpHeaderField, TransportHeaderField, UdpHeaderField, Verdict as NftVerdict,
 };
-use nftnl::nftnl_sys::libc;
+use nftnl::nftnl_sys::{self as sys, libc};
 use nftnl::{Batch, Chain, Hook, MsgType, Policy as ChainPolicy, ProtoFamily, Rule, Table};
 
 use crate::LinuxBackend;
@@ -305,23 +328,333 @@ fn apply_policy(policy: &FirewallPolicy) -> Result<()> {
     send_batch(batch.finalize())
 }
 
+/// Standard Linux UAPI `linux/netlink.h` constants. Not re-exported by the
+/// plain `libc` crate on non-Android Linux (confirmed by inspecting its
+/// source: only `unix/linux_like/android/mod.rs` defines them), so defined
+/// locally rather than pulled from a dependency — these values have been
+/// stable since netlink's inception and are not expected to change.
+const NLM_F_ROOT: u16 = 0x100;
+const NLM_F_MATCH: u16 = 0x200;
+const NLM_F_DUMP: u16 = NLM_F_ROOT | NLM_F_MATCH;
+const NLMSG_ERROR: u16 = 0x2;
+const NLMSG_DONE: u16 = 0x3;
+
+fn chain_name(direction: Direction) -> &'static CStr {
+    match direction {
+        Direction::Inbound => INBOUND_CHAIN_NAME,
+        Direction::Outbound => OUTBOUND_CHAIN_NAME,
+        _ => unreachable!("Direction is non_exhaustive; every current variant is handled above"),
+    }
+}
+
+/// Reads the `nlmsghdr` fields needed to route each dump reply: `nlmsg_len`
+/// and `nlmsg_type`, both native-endian per netlink wire format.
+fn nlmsg_header(message: &[u8]) -> Option<(u32, u16)> {
+    if message.len() < 6 {
+        return None;
+    }
+    let len = u32::from_ne_bytes(message[0..4].try_into().ok()?);
+    let msg_type = u16::from_ne_bytes(message[4..6].try_into().ok()?);
+    Some((len, msg_type))
+}
+
+/// Returns the raw `errno` an `NLMSG_ERROR` reply carries (its payload's
+/// first 4 bytes, per `struct nlmsgerr`), or `None` if the message is too
+/// short to contain one.
+fn nlmsg_error_code(message: &[u8]) -> Option<i32> {
+    const NLMSGHDR_LEN: usize = 16;
+    if message.len() < NLMSGHDR_LEN + 4 {
+        return None;
+    }
+    Some(i32::from_ne_bytes(
+        message[NLMSGHDR_LEN..NLMSGHDR_LEN + 4].try_into().ok()?,
+    ))
+}
+
+/// Returns this expression's type name (e.g. `"meta"`, `"cmp"`,
+/// `"payload"`, `"bitwise"`, `"immediate"`), or `None` if libnftnl has no
+/// name attribute set (shouldn't happen for a rule the kernel returned).
+fn expr_name(expr: *const sys::nftnl_expr) -> Option<String> {
+    let ptr = unsafe { sys::nftnl_expr_get_str(expr, sys::NFTNL_EXPR_NAME as u16) };
+    if ptr.is_null() {
+        return None;
+    }
+    Some(
+        unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned(),
+    )
+}
+
+/// Returns a copy of a variable-length expression attribute's raw bytes
+/// (e.g. `NFTNL_EXPR_CMP_DATA`, `NFTNL_EXPR_BITWISE_MASK`).
+fn expr_bytes(expr: *const sys::nftnl_expr, attr: u32) -> Vec<u8> {
+    let mut len: u32 = 0;
+    let ptr = unsafe { sys::nftnl_expr_get(expr, attr as u16, &mut len) };
+    if ptr.is_null() || len == 0 {
+        return Vec::new();
+    }
+    unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len as usize) }.to_vec()
+}
+
+/// Reconstructs a [`Network`] from the raw big-endian address and
+/// prefix-mask bytes an `add_remote_match`-written `payload`+`bitwise`+`cmp`
+/// sequence carries. Returns `None` for any shape this module didn't itself
+/// write (wrong length, or a mask with non-leading set bits).
+fn decode_remote(addr: &[u8], mask: &[u8]) -> Option<Network> {
+    if addr.len() != mask.len() {
+        return None;
+    }
+    match addr.len() {
+        4 => {
+            let addr4: [u8; 4] = addr.try_into().ok()?;
+            let mask4: [u8; 4] = mask.try_into().ok()?;
+            let prefix = u32::from_be_bytes(mask4).leading_ones();
+            let network = Ipv4Network::new(
+                std::net::Ipv4Addr::from(addr4).into(),
+                Ipv4PrefixLength::new(prefix as u8)?,
+            );
+            Some(Network::V4(network))
+        }
+        16 => {
+            let addr16: [u8; 16] = addr.try_into().ok()?;
+            let mask16: [u8; 16] = mask.try_into().ok()?;
+            let prefix = u128::from_be_bytes(mask16).leading_ones();
+            let network = Ipv6Network::new(
+                std::net::Ipv6Addr::from(addr16).into(),
+                Ipv6PrefixLength::new(prefix as u8)?,
+            );
+            Some(Network::V6(network))
+        }
+        _ => None,
+    }
+}
+
+fn protocol_from_number(number: u8) -> Option<Protocol> {
+    match number as i32 {
+        n if n == libc::IPPROTO_TCP => Some(Protocol::Tcp),
+        n if n == libc::IPPROTO_UDP => Some(Protocol::Udp),
+        n if n == libc::IPPROTO_ICMP || n == libc::IPPROTO_ICMPV6 => Some(Protocol::Icmp),
+        _ => None,
+    }
+}
+
+/// Decodes one kernel-returned `nftnl_rule`'s expression list back into a
+/// [`FirewallRule`], by walking the exact fixed expression sequences
+/// `add_expressions` (and its helpers) write. Returns `None` only if the
+/// rule carries no terminating verdict expression at all — every other
+/// unrecognized shape degrades gracefully (that piece of the rule is
+/// simply left unset) rather than failing the whole decode.
+fn decode_rule(rule: *const sys::nftnl_rule, direction: Direction) -> Option<FirewallRule> {
+    let iter = unsafe { sys::nftnl_expr_iter_create(rule) };
+    if iter.is_null() {
+        return None;
+    }
+
+    let mut interface_index = None;
+    let mut remote = None;
+    let mut protocol_number = None;
+    let mut port = None;
+    let mut verdict = None;
+
+    loop {
+        let expr = unsafe { sys::nftnl_expr_iter_next(iter) };
+        if expr.is_null() {
+            break;
+        }
+        match expr_name(expr).as_deref() {
+            Some("meta") => {
+                let key = unsafe { sys::nftnl_expr_get_u32(expr, sys::NFTNL_EXPR_META_KEY as u16) };
+                let cmp = unsafe { sys::nftnl_expr_iter_next(iter) };
+                if cmp.is_null() {
+                    break;
+                }
+                let data = expr_bytes(cmp, sys::NFTNL_EXPR_CMP_DATA);
+                if key == libc::NFT_META_IIF as u32 || key == libc::NFT_META_OIF as u32 {
+                    if let Ok(bytes) = <[u8; 4]>::try_from(data.as_slice()) {
+                        interface_index = Some(u32::from_ne_bytes(bytes));
+                    }
+                } else if key == libc::NFT_META_L4PROTO as u32
+                    && let Some(&byte) = data.first()
+                {
+                    protocol_number = Some(byte);
+                }
+            }
+            Some("payload") => {
+                let next = unsafe { sys::nftnl_expr_iter_next(iter) };
+                if next.is_null() {
+                    break;
+                }
+                match expr_name(next).as_deref() {
+                    Some("bitwise") => {
+                        let mask = expr_bytes(next, sys::NFTNL_EXPR_BITWISE_MASK);
+                        let cmp = unsafe { sys::nftnl_expr_iter_next(iter) };
+                        if cmp.is_null() {
+                            break;
+                        }
+                        let addr = expr_bytes(cmp, sys::NFTNL_EXPR_CMP_DATA);
+                        remote = decode_remote(&addr, &mask);
+                    }
+                    Some("cmp") => {
+                        let op =
+                            unsafe { sys::nftnl_expr_get_u32(next, sys::NFTNL_EXPR_CMP_OP as u16) };
+                        let data = expr_bytes(next, sys::NFTNL_EXPR_CMP_DATA);
+                        if let Ok(bytes) = <[u8; 2]>::try_from(data.as_slice()) {
+                            let start = u16::from_be_bytes(bytes);
+                            if op == libc::NFT_CMP_GTE as u32 {
+                                // A range compiles to payload+cmp(Gte) then a
+                                // reloaded payload+cmp(Lte) — consume both.
+                                let _reload = unsafe { sys::nftnl_expr_iter_next(iter) };
+                                let cmp2 = unsafe { sys::nftnl_expr_iter_next(iter) };
+                                if let Some(end_bytes) = (!cmp2.is_null())
+                                    .then(|| expr_bytes(cmp2, sys::NFTNL_EXPR_CMP_DATA))
+                                    .and_then(|data| <[u8; 2]>::try_from(data.as_slice()).ok())
+                                {
+                                    port =
+                                        Some(PortRange::new(start, u16::from_be_bytes(end_bytes)));
+                                }
+                            } else {
+                                port = Some(PortRange::single(start));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Some("immediate") => {
+                let verdict_num =
+                    unsafe { sys::nftnl_expr_get_u32(expr, sys::NFTNL_EXPR_IMM_VERDICT as u16) };
+                verdict = Some(if verdict_num == libc::NF_ACCEPT as u32 {
+                    Verdict::Allow
+                } else {
+                    Verdict::Deny
+                });
+            }
+            _ => {}
+        }
+    }
+    unsafe { sys::nftnl_expr_iter_destroy(iter) };
+
+    let mut built = FirewallRule::new(direction, verdict?);
+    if let Some(index) = interface_index {
+        built = built.with_interface_index(index);
+    }
+    if let Some(remote) = remote {
+        built = built.with_remote(remote);
+    }
+    if let Some(number) = protocol_number
+        && let Some(protocol) = protocol_from_number(number)
+    {
+        built = built.with_protocol(protocol);
+        if let Some(port) = port {
+            built = built.with_port(port);
+        }
+    }
+    Some(built)
+}
+
+/// Dumps every rule in `direction`'s managed chain directly from the
+/// kernel (`NFT_MSG_GETRULE`, `NLM_F_DUMP`, scoped to `net_lattice`'s
+/// `inbound`/`outbound` chain) and decodes each one back into a
+/// [`FirewallRule`], preserving the chain's own rule order.
+fn read_chain_rules(direction: Direction) -> Result<Vec<FirewallRule>> {
+    let socket = mnl::Socket::new(mnl::Bus::Netfilter)
+        .map_err(|err| Error::Platform(mnl_error_code(&err)))?;
+
+    let mut send_buf = vec![0u8; nftnl::nft_nlmsg_maxsize() as usize];
+    let msg_len = unsafe {
+        let filter_rule = sys::nftnl_rule_alloc();
+        if filter_rule.is_null() {
+            return Err(Error::Platform(PlatformErrorCode::Linux(libc::ENOMEM)));
+        }
+        sys::nftnl_rule_set_u32(
+            filter_rule,
+            sys::NFTNL_RULE_FAMILY as u16,
+            ProtoFamily::Inet as u32,
+        );
+        let table_name = CString::new(TABLE_NAME.to_bytes())
+            .expect("TABLE_NAME has no interior NUL, it's a static &CStr literal");
+        sys::nftnl_rule_set_str(
+            filter_rule,
+            sys::NFTNL_RULE_TABLE as u16,
+            table_name.as_ptr(),
+        );
+        let chain_name_owned = CString::new(chain_name(direction).to_bytes())
+            .expect("chain names have no interior NUL, they're static &CStr literals");
+        sys::nftnl_rule_set_str(
+            filter_rule,
+            sys::NFTNL_RULE_CHAIN as u16,
+            chain_name_owned.as_ptr(),
+        );
+
+        let header = sys::nftnl_nlmsg_build_hdr(
+            send_buf.as_mut_ptr().cast(),
+            libc::NFT_MSG_GETRULE as u16,
+            ProtoFamily::Inet as u16,
+            NLM_F_DUMP,
+            1,
+        );
+        sys::nftnl_rule_nlmsg_build_payload(header, filter_rule);
+        sys::nftnl_rule_free(filter_rule);
+
+        u32::from_ne_bytes(
+            send_buf[0..4]
+                .try_into()
+                .expect("nlmsghdr is at least 4 bytes"),
+        ) as usize
+    };
+
+    socket
+        .send(&send_buf[..msg_len])
+        .map_err(|err| Error::Platform(mnl_error_code(&err)))?;
+
+    let mut rules = Vec::new();
+    let mut recv_buf = vec![0u8; nftnl::nft_nlmsg_maxsize() as usize];
+    'dump: loop {
+        let messages = socket
+            .recv(&mut recv_buf)
+            .map_err(|err| Error::Platform(mnl_error_code(&err)))?;
+        for message in messages {
+            let message = message.map_err(|err| Error::Platform(mnl_error_code(&err)))?;
+            let Some((_len, msg_type)) = nlmsg_header(message) else {
+                continue;
+            };
+            if msg_type == NLMSG_DONE {
+                break 'dump;
+            }
+            if msg_type == NLMSG_ERROR {
+                let errno = nlmsg_error_code(message).unwrap_or(0);
+                if errno != 0 {
+                    return Err(Error::Platform(PlatformErrorCode::Linux(-errno)));
+                }
+                break 'dump;
+            }
+
+            let rule = unsafe { sys::nftnl_rule_alloc() };
+            if rule.is_null() {
+                return Err(Error::Platform(PlatformErrorCode::Linux(libc::ENOMEM)));
+            }
+            let nlh = message.as_ptr().cast::<libc::nlmsghdr>();
+            let parsed = unsafe { sys::nftnl_rule_nlmsg_parse(nlh, rule) };
+            if parsed == 0
+                && let Some(decoded) = decode_rule(rule, direction)
+            {
+                rules.push(decoded);
+            }
+            unsafe { sys::nftnl_rule_free(rule) };
+        }
+    }
+
+    Ok(rules)
+}
+
 impl FirewallProvider for LinuxBackend {
     type FirewallRule = FirewallRule;
 
     fn firewall_rules(&self) -> Result<Vec<Self::FirewallRule>> {
-        // Returns the last policy this process applied via
-        // `set_firewall_policy`, not a native GETRULE dump — see NL-165 for
-        // the tracked follow-up to read the managed table/chains directly
-        // from the kernel. This does not detect the managed policy being
-        // changed or removed out-of-band.
-        let policy = self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        Ok(policy
-            .as_ref()
-            .map(|policy| policy.rules.clone())
-            .unwrap_or_default())
+        let mut rules = read_chain_rules(Direction::Inbound)?;
+        rules.extend(read_chain_rules(Direction::Outbound)?);
+        Ok(rules)
     }
 }
 
@@ -329,22 +662,11 @@ impl FirewallMutator for LinuxBackend {
     type FirewallPolicy = LinuxFirewallPolicy;
 
     fn set_firewall_policy(&self, policy: Self::FirewallPolicy) -> Result<()> {
-        apply_policy(&policy)?;
-        *self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner()) = Some(policy);
-        Ok(())
+        apply_policy(&policy)
     }
 
     fn clear_firewall_policy(&self) -> Result<()> {
-        let empty = FirewallPolicy::new(Verdict::Allow);
-        apply_policy(&empty)?;
-        *self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner()) = Some(empty);
-        Ok(())
+        apply_policy(&FirewallPolicy::new(Verdict::Allow))
     }
 }
 
@@ -392,23 +714,59 @@ mod tests {
     /// crate's other privileged tests — see
     /// `add_then_remove_route_round_trips_through_the_kernel` in `lib.rs`.
     ///
-    /// A real, allowed-by-default outbound DNS rule plus a default-deny
-    /// policy is applied and then cleared. This has not been verified
-    /// against a live kernel by the author of this change (no `CAP_NET_ADMIN`
-    /// was available in the environment it was written in) — a passing run
-    /// of this test, or an `nft list ruleset` inspection while it is
-    /// paused mid-run, is the outstanding verification this crate's own
-    /// `@.claude/rules/ci.md` requires before this Task can be considered
-    /// independently reviewed.
+    /// Exercises every match shape `decode_rule` handles (interface, IPv4
+    /// remote, IPv6 remote, a single port, a port range, and a bare
+    /// protocol match with no port) in one policy, all on
+    /// [`Direction::Outbound`] so `firewall_rules()`'s documented
+    /// direction-grouping caveat doesn't affect the equality check. This
+    /// has not been verified against a live kernel by the author of this
+    /// change (no `CAP_NET_ADMIN` was available in the environment it was
+    /// written in) — a passing run of this test, or an `nft list ruleset`
+    /// inspection while it is paused mid-run, is the outstanding
+    /// verification this crate's own `@.claude/rules/ci.md` requires
+    /// before this Task can be considered independently reviewed.
     #[test]
     #[ignore = "requires CAP_NET_ADMIN; run with `sudo -E cargo test -p net-lattice-backend-linux -- --ignored`"]
     fn set_then_clear_firewall_policy_round_trips_through_the_kernel() {
+        use net_lattice_ip::{
+            Ipv4Address, Ipv4Network, Ipv4PrefixLength, Ipv6Address, Ipv6Network, Ipv6PrefixLength,
+        };
+
         let backend = LinuxBackend::new().expect("failed to open a Netlink connection");
 
-        let allow_dns = FirewallRule::new(Direction::Outbound, Verdict::Allow)
+        let loopback_index = unsafe { libc::if_nametoindex(c"lo".as_ptr()) };
+        assert_ne!(loopback_index, 0, "this host has no `lo` interface");
+
+        let via_loopback = FirewallRule::new(Direction::Outbound, Verdict::Allow)
+            .with_interface_index(loopback_index);
+        let v4_remote = FirewallRule::new(Direction::Outbound, Verdict::Deny).with_remote(
+            Network::V4(Ipv4Network::new(
+                Ipv4Address::new(198, 51, 100, 0),
+                Ipv4PrefixLength::new(24).unwrap(),
+            )),
+        );
+        let v6_remote = FirewallRule::new(Direction::Outbound, Verdict::Deny).with_remote(
+            Network::V6(Ipv6Network::new(
+                Ipv6Address::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0]),
+                Ipv6PrefixLength::new(32).unwrap(),
+            )),
+        );
+        let single_port = FirewallRule::new(Direction::Outbound, Verdict::Allow)
             .with_protocol(Protocol::Udp)
             .with_port(net_lattice_model::firewall::PortRange::single(53));
-        let policy = FirewallPolicy::new(Verdict::Deny).with_rule(allow_dns);
+        let port_range = FirewallRule::new(Direction::Outbound, Verdict::Allow)
+            .with_protocol(Protocol::Tcp)
+            .with_port(net_lattice_model::firewall::PortRange::new(1000, 2000));
+        let protocol_only =
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_protocol(Protocol::Icmp);
+
+        let policy = FirewallPolicy::new(Verdict::Allow)
+            .with_rule(via_loopback)
+            .with_rule(v4_remote)
+            .with_rule(v6_remote)
+            .with_rule(single_port)
+            .with_rule(port_range)
+            .with_rule(protocol_only);
 
         let set_result = backend.set_firewall_policy(policy.clone());
         if matches!(
@@ -425,5 +783,11 @@ mod tests {
 
         // Clean up regardless of the assertion above.
         let _ = backend.clear_firewall_policy();
+        assert!(
+            backend
+                .firewall_rules()
+                .expect("firewall_rules() failed after clear_firewall_policy succeeded")
+                .is_empty()
+        );
     }
 }

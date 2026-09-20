@@ -55,14 +55,28 @@ and a breaking change will require an explicit major version bump.
   `inbound`/`outbound`) via the `nftnl` crate (Mullvad, MIT/Apache-2.0) over
   `NETLINK_NETFILTER` — no `nft` subprocess. Building this crate now
   requires the `libmnl`/`libnftnl` development packages; see the crate's
-  README. `FirewallProvider::firewall_rules` currently returns the last
-  policy this process applied, not a live kernel dump (tracked separately,
-  `NL-165`). **Not yet independently verified against a live kernel** — the
-  added privileged test (`set_then_clear_firewall_policy_round_trips_
-  through_the_kernel`, `#[ignore]`d) needs a `CAP_NET_ADMIN` run before this
-  implementation is considered reviewed.
-- Windows (WFP) and macOS (`pf`) firewall backends are planned as separate
-  follow-on work, not included in this change.
+  README. `FirewallProvider::firewall_rules` reads the managed table's
+  rules directly from the kernel (`NFT_MSG_GETRULE`) rather than a cached
+  copy of the last-applied policy, so it reflects out-of-band changes.
+  Verified with a passing privileged native round-trip test on real Linux
+  CI.
+- `net-lattice-backend-windows`: a real `FirewallMutator` implementation
+  managing filters across the four ALE layers (`FWPM_LAYER_ALE_AUTH_
+  CONNECT_V4`/`_V6` for outbound, `FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4`/`_V6`
+  for inbound) via the `windows` crate's raw WFP bindings — no safe wrapper
+  crate exists for WFP. `FirewallPolicy::default_verdict` is realized as a
+  condition-free lowest-weight filter per layer (WFP has no base-chain-
+  policy equivalent). Verified with a passing privileged native round-trip
+  test on real Windows CI (Administrator).
+- `net-lattice-backend-darwin`: a real `FirewallMutator` implementation
+  managing one `pf` anchor (`net_lattice`) via raw ioctl on `/dev/pf`
+  (`DIOCXBEGIN`/`DIOCADDRULE`/`DIOCXCOMMIT`, `DIOCXROLLBACK` on error) —
+  no safe Rust wrapper exists for `pf`, and Apple does not ship the
+  kernel-private `net/pfvar.h` header in the public SDK, so the ioctl
+  structs are transcribed field-for-field from Apple's own published XNU
+  source rather than a mismatched modern OpenBSD header or memory
+  reconstruction. Verified with a passing privileged native round-trip
+  test on real macOS CI (root).
 
 ## [0.21.2] - 2026-09-20
 

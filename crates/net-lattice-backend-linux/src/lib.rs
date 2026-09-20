@@ -47,10 +47,6 @@ mod firewall;
 pub struct LinuxBackend {
     runtime: tokio::runtime::Runtime,
     handle: Handle,
-    /// The last [`net_lattice_model::firewall::FirewallPolicy`] this process
-    /// applied via `set_firewall_policy`, used to serve `firewall_rules()`
-    /// until a real native GETRULE dump is implemented (tracked separately).
-    firewall_policy: std::sync::Mutex<Option<net_lattice_model::firewall::FirewallPolicy>>,
 }
 
 struct LinuxWatch {
@@ -80,11 +76,7 @@ impl LinuxBackend {
         let (connection, handle, _) =
             rtnetlink::new_connection().map_err(|err| Error::Platform(io_error_code(&err)))?;
         runtime.spawn(connection);
-        Ok(Self {
-            runtime,
-            handle,
-            firewall_policy: std::sync::Mutex::new(None),
-        })
+        Ok(Self { runtime, handle })
     }
 }
 
