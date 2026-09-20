@@ -102,13 +102,14 @@ Implemented:
 - Declarative desired-state configuration: `DesiredState`, a pure `Diff`
   computed against a `CurrentState`, a pure compiled `ApplyPlan`, and
   `Lattice::apply()`/`execute_apply_plan()` to run it against a backend
+- Native-firewall policy management (`FirewallProvider`/`FirewallMutator`),
+  on Linux (nftables), Windows (WFP), and macOS (`pf`)
 
 Planned:
 
 - VLANs
 - VRFs
 - Network namespaces
-- Firewall integration
 
 ## Non-Goals
 
@@ -337,8 +338,9 @@ sequential overview rather than a status ledger:
 15. **Stage 0.19: Declarative diff** — separate `DesiredState` configuration types and an inspectable `Diff`, without mutation.
 16. **Stage 0.20: Declarative apply** — compile a `Diff` into an `ApplyPlan` and execute it through the transaction engine.
 17. **Stage 0.21: Pre-1.0 hardening** — done. Public contracts, identity and capability rules, event guarantees, platform matrix, and privileged regression coverage are frozen; see [ARCHITECTURE.md](ARCHITECTURE.md)'s public-API freeze audit.
-18. **Stage 0.22+: Capability domains** — VLAN, VRF, namespaces, and firewall, each with a complete read/intent/mutation/event/capability/test contract. They are not prerequisites for 1.0. Tunnel interface management is out of scope for this repository; see [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) in the ecosystem table above.
-19. **1.0** — stable foundation for the inspection, monitoring, imperative mutation, transaction, and declarative-apply contracts. The stage 0.21 compatibility audit that gates it is complete; the first stable `1.0.0` release is ready for publication.
+18. **Stage 0.22: Firewall** — done. `FirewallProvider`/`FirewallMutator` (ADR-0017) shipped on Linux (nftables), Windows (WFP), and macOS (`pf`), each verified with a passing privileged native round-trip test on its own CI runner.
+19. **Stage 0.23+: Remaining capability domains** — VLAN, VRF, and namespaces, each with a complete read/intent/mutation/event/capability/test contract. They are not prerequisites for 1.0. Tunnel interface management is out of scope for this repository; see [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) in the ecosystem table above.
+20. **1.0** — stable foundation for the inspection, monitoring, imperative mutation, transaction, and declarative-apply contracts. The stage 0.21 compatibility audit that gates it is complete; the first stable `1.0.0` release is ready for publication.
 
 Stages are delivery boundaries, not a promise of one release per heading: platform validation may split a stage, and focused hardening releases may appear between stages. See [CHANGELOG.md](CHANGELOG.md) for what has shipped in each dated release.
 

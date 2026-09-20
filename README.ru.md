@@ -105,13 +105,14 @@ Net Lattice призвана закрыть этот пробел, предос�
   `Diff`, вычисляемый относительно `CurrentState`, чистый скомпилированный
   `ApplyPlan` и `Lattice::apply()`/`execute_apply_plan()` для его исполнения
   на подключённом backend'е
+- Управление native-firewall policy (`FirewallProvider`/`FirewallMutator`)
+  на Linux (nftables), Windows (WFP) и macOS (`pf`)
 
 Запланировано:
 
 - VLAN
 - VRF
 - Сетевые пространства имён (namespaces)
-- Интеграция с firewall
 
 ## Не входит в задачи проекта
 
@@ -312,8 +313,9 @@ if lattice.supports(Capability::ROUTE_MONITORING) {
 15. **Stage 0.19: Декларативный diff** — отдельные конфигурационные типы `DesiredState` и inspectable `Diff` без mutation.
 16. **Stage 0.20: Декларативное применение** — компиляция `Diff` в `ApplyPlan` и его исполнение через transaction engine.
 17. **Stage 0.21: Pre-1.0 hardening** — завершена. Публичные контракты, правила identity и capability, гарантии событий, матрица платформ и privileged regression coverage заморожены; см. аудит заморозки публичного API в [ARCHITECTURE.ru.md](ARCHITECTURE.ru.md).
-18. **Stage 0.22+: Домены Capability** — VLAN, VRF, namespaces и firewall, каждый с полным контрактом read/intent/mutation/event/capability/tests. Они не являются prerequisite для 1.0. Управление tunnel-интерфейсами вне зоны ответственности этого репозитория; см. [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) в таблице экосистемы выше.
-19. **1.0** — стабильная основа для контрактов inspection, monitoring, imperative mutation, transactions и declarative apply. Compatibility audit стадии 0.21, который её закрывает, завершён; первый стабильный релиз `1.0.0` готов к публикации.
+18. **Stage 0.22: Firewall** — готово. `FirewallProvider`/`FirewallMutator` (ADR-0017) реализованы на Linux (nftables), Windows (WFP) и macOS (`pf`), каждый проверен прохождением привилегированного нативного round-trip теста на своём CI-раннере.
+19. **Stage 0.23+: Оставшиеся домены Capability** — VLAN, VRF и namespaces, каждый с полным контрактом read/intent/mutation/event/capability/tests. Они не являются prerequisite для 1.0. Управление tunnel-интерфейсами вне зоны ответственности этого репозитория; см. [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) в таблице экосистемы выше.
+20. **1.0** — стабильная основа для контрактов inspection, monitoring, imperative mutation, transactions и declarative apply. Compatibility audit стадии 0.21, который её закрывает, завершён; первый стабильный релиз `1.0.0` готов к публикации.
 
 Этапы — это границы поставки, а не обещание одного релиза на каждый заголовок: platform validation может разделить этап, а focused hardening-релизы могут появляться между этапами. О том, что реально вышло в каждом датированном релизе, см. [CHANGELOG.md](CHANGELOG.md).
 
