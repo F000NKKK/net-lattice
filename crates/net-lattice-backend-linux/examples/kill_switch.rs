@@ -13,11 +13,19 @@
 //! (e.g. via `sudo -E`) to actually install the policy; otherwise this only
 //! prints the policy it would install. The example clears the policy before
 //! exiting, restoring the default-allow state it started from.
+//!
+//! `net-lattice-backend-linux` compiles to an empty crate outside
+//! `target_os = "linux"` (see its `#![cfg(target_os = "linux")]`), but an
+//! example is its own crate root and is not covered by that attribute — a
+//! workspace-wide `cargo check`/`build` on Windows or macOS would otherwise
+//! try to compile this file against a backend crate that exports nothing
+//! there. Gate the real body the same way the library does.
 
-use net_lattice_model::firewall::{Direction, FirewallPolicy, FirewallRule, Verdict};
-use net_lattice_platform::{FirewallMutator, InterfaceProvider};
-
+#[cfg(target_os = "linux")]
 fn main() -> net_lattice_core::Result<()> {
+    use net_lattice_model::firewall::{Direction, FirewallPolicy, FirewallRule, Verdict};
+    use net_lattice_platform::{FirewallMutator, InterfaceProvider};
+
     let tunnel_interface_name =
         std::env::var("NET_LATTICE_KILL_SWITCH_INTERFACE").unwrap_or_else(|_| "tun0".to_string());
 
@@ -87,4 +95,9 @@ fn main() -> net_lattice_core::Result<()> {
     println!("clear_firewall_policy result: {cleared:?}");
 
     result
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("this example only runs on target_os = \"linux\" (uses nftables via net-lattice-backend-linux)");
 }
