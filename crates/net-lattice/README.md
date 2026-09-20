@@ -216,6 +216,13 @@ fn main() -> Result<()> {
 }
 ```
 
+`DesiredState::with_firewall(policy)` manages the same policy declaratively:
+`Diff::compute` reports a `FirewallChange` when the desired policy's rules
+differ from the observed ones, and `ApplyPlan::compile` lowers that change
+to the same `set_firewall_policy` call. There is no separate "clear"
+mutation variant — `clear_firewall_policy()` is sugar for
+`set_firewall_policy(FirewallPolicy::new(Verdict::Allow))`.
+
 See `firewall_policy` for a runnable example and
 `net-lattice-backend-linux`'s `kill_switch` example for a more elaborate
 usage pattern built on this same API.
