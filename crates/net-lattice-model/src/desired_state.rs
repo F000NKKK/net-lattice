@@ -17,6 +17,7 @@
 //! computes nothing.
 
 use crate::dns::NewDnsConfig;
+use crate::firewall::FirewallPolicy;
 use crate::ifaddr::NewInterfaceAddress;
 use crate::interface::InterfaceConfig;
 use crate::neighbor::StaticNeighbor;
@@ -76,6 +77,11 @@ pub struct DesiredState {
     /// singleton value rather than a collection, since a system has exactly
     /// one resolver configuration.
     pub dns: Option<NewDnsConfig>,
+    /// Desired firewall policy, or `None` if the firewall is not managed by
+    /// this `DesiredState`. Like `dns`, this is a singleton value: a system
+    /// has exactly one active default-verdict-plus-rules policy per
+    /// backend.
+    pub firewall: Option<FirewallPolicy>,
 }
 
 impl DesiredState {
@@ -95,6 +101,7 @@ impl DesiredState {
             neighbors: None,
             addresses: None,
             dns: None,
+            firewall: None,
         }
     }
 
@@ -136,6 +143,14 @@ impl DesiredState {
         self.dns = Some(dns);
         self
     }
+
+    /// Marks the firewall domain as managed, with `firewall` as its desired
+    /// policy (which may have an empty rule list, meaning "only the default
+    /// verdict applies").
+    pub fn with_firewall(mut self, firewall: FirewallPolicy) -> Self {
+        self.firewall = Some(firewall);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -170,6 +185,7 @@ mod tests {
                 vec![IpAddress::from(Ipv4Address::new(1, 1, 1, 1))],
                 vec!["example.test".to_string()],
             ))
+            .with_firewall(FirewallPolicy::new(crate::firewall::Verdict::Allow))
     }
 
     #[test]
@@ -180,6 +196,7 @@ mod tests {
         assert_eq!(state.neighbors, None);
         assert_eq!(state.addresses, None);
         assert_eq!(state.dns, None);
+        assert_eq!(state.firewall, None);
     }
 
     #[test]
@@ -189,6 +206,7 @@ mod tests {
         assert!(state.neighbors.is_some());
         assert!(state.addresses.is_some());
         assert!(state.dns.is_some());
+        assert!(state.firewall.is_some());
         assert_eq!(state.interfaces, None);
     }
 

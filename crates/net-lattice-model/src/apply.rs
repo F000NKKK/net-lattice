@@ -372,6 +372,12 @@ impl ApplyPlan {
             )));
         }
 
+        if let Some(firewall_change) = &diff.firewall {
+            steps.push(ApplyStep::Single(Mutation::SetFirewallPolicy(
+                firewall_change.desired.clone(),
+            )));
+        }
+
         ApplyPlan { steps }
     }
 
@@ -542,6 +548,7 @@ mod tests {
             neighbors: Vec::new(),
             addresses: Vec::new(),
             dns: None,
+            firewall: None,
         }
     }
 
@@ -563,6 +570,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             DnsConfig::new(),
+            Vec::new(),
         );
         let desired = DesiredState::empty();
         let diff = Diff::compute(&current, &desired);
@@ -793,6 +801,7 @@ mod tests {
                 Vec::new(),
                 Vec::new(),
                 DnsConfig::new(),
+                Vec::new(),
             )
         };
         let desired = DesiredState::empty().with_interfaces(vec![config]);
@@ -949,6 +958,37 @@ mod tests {
     fn dns_none_produces_no_step() {
         let diff = Diff {
             dns: None,
+            ..empty_diff()
+        };
+        let plan = ApplyPlan::compile(&diff);
+        assert!(plan.is_empty());
+    }
+
+    // ---- firewall ----
+
+    #[test]
+    fn firewall_change_compiles_to_set_firewall_policy() {
+        let desired_policy = crate::firewall::FirewallPolicy::new(crate::firewall::Verdict::Allow);
+        let diff = Diff {
+            firewall: Some(crate::diff::FirewallChange {
+                current: Vec::new(),
+                desired: desired_policy.clone(),
+            }),
+            ..empty_diff()
+        };
+        let plan = ApplyPlan::compile(&diff);
+        assert_eq!(
+            plan.step(0),
+            Some(&ApplyStep::Single(Mutation::SetFirewallPolicy(
+                desired_policy
+            )))
+        );
+    }
+
+    #[test]
+    fn firewall_none_produces_no_step() {
+        let diff = Diff {
+            firewall: None,
             ..empty_diff()
         };
         let plan = ApplyPlan::compile(&diff);

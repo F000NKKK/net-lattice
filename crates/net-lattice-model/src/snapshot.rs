@@ -3,11 +3,12 @@
 //! `CurrentState` is a distinct concept from [`crate::mutation::MutationSnapshot`]:
 //! the latter is a narrow, single-domain capture taken immediately before one
 //! mutation, while `CurrentState` aggregates every domain this crate models
-//! (routes, interfaces, neighbors, interface addresses, and DNS
-//! configuration) into one whole-system read. The two types are not
+//! (routes, interfaces, neighbors, interface addresses, DNS configuration,
+//! and firewall rules) into one whole-system read. The two types are not
 //! generalizations of one another and must not be conflated.
 
 use crate::dns::DnsConfig;
+use crate::firewall::FirewallRule;
 use crate::ifaddr::InterfaceAddress;
 use crate::interface::Interface;
 use crate::neighbor::NeighborEntry;
@@ -51,10 +52,15 @@ pub struct CurrentState {
     pub addresses: Vec<InterfaceAddress>,
     /// Resolver configuration observed at read time.
     pub dns: DnsConfig,
+    /// Firewall rules observed at read time, in the order the backend
+    /// applies them. Does not carry the backend's current default verdict
+    /// — see [`crate::mutation::MutationSnapshot::Firewall`] for why that
+    /// value is not observable through this crate's provider contracts.
+    pub firewall_rules: Vec<FirewallRule>,
 }
 
 impl CurrentState {
-    /// Assembles a [`CurrentState`] from its five per-domain reads.
+    /// Assembles a [`CurrentState`] from its six per-domain reads.
     ///
     /// `#[non_exhaustive]` blocks a struct-literal construction from outside
     /// this crate (for example from the `net-lattice` facade, which is the
@@ -67,6 +73,7 @@ impl CurrentState {
         neighbors: Vec<NeighborEntry>,
         addresses: Vec<InterfaceAddress>,
         dns: DnsConfig,
+        firewall_rules: Vec<FirewallRule>,
     ) -> Self {
         Self {
             routes,
@@ -74,6 +81,7 @@ impl CurrentState {
             neighbors,
             addresses,
             dns,
+            firewall_rules,
         }
     }
 }
@@ -116,6 +124,10 @@ mod tests {
                 network(),
             )],
             dns: DnsConfig::new(),
+            firewall_rules: vec![FirewallRule::new(
+                crate::firewall::Direction::Inbound,
+                crate::firewall::Verdict::Deny,
+            )],
         }
     }
 
@@ -127,6 +139,7 @@ mod tests {
         assert_eq!(state.neighbors.len(), 1);
         assert_eq!(state.addresses.len(), 1);
         assert_eq!(state.dns, DnsConfig::new());
+        assert_eq!(state.firewall_rules.len(), 1);
     }
 
     #[test]
@@ -149,12 +162,14 @@ mod tests {
             neighbors: Vec::new(),
             addresses: Vec::new(),
             dns: DnsConfig::new(),
+            firewall_rules: Vec::new(),
         };
         assert_ne!(empty, sample());
         assert!(empty.routes.is_empty());
         assert!(empty.interfaces.is_empty());
         assert!(empty.neighbors.is_empty());
         assert!(empty.addresses.is_empty());
+        assert!(empty.firewall_rules.is_empty());
     }
 
     #[test]

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use crate::desired_state::DesiredState;
 use crate::dns::{DnsConfig, NewDnsConfig};
+use crate::firewall::{FirewallPolicy, FirewallRule};
 use crate::ifaddr::{InterfaceAddress, NewInterfaceAddress};
 use crate::interface::{AdminState, DesiredAdminState, InterfaceId};
 use crate::neighbor::{NeighborEntry, StaticNeighbor};
@@ -69,6 +70,18 @@ pub struct Diff {
     /// unmanaged and an already-matching domain collapse to "nothing to do"
     /// for every other domain too.
     pub dns: Option<DnsChange>,
+    /// The whole-firewall-policy change, if any. `None` means either the
+    /// firewall is unmanaged (`DesiredState::firewall` is `None`) or the
+    /// desired policy's rule list already matches the observed rules.
+    ///
+    /// **Linux note:** `firewall_rules()` on the Linux backend returns rules
+    /// grouped by [`crate::firewall::Direction`], not necessarily in the
+    /// exact order a policy interleaving directions was submitted in. A
+    /// desired [`FirewallPolicy`] whose rules interleave directions can
+    /// therefore report as `Some` (changed) even immediately after a
+    /// successful apply of that same policy — a known, structural,
+    /// cross-platform ordering inconsistency, not a bug in `Diff` itself.
+    pub firewall: Option<FirewallChange>,
 }
 
 /// One requested-but-unmatched field on an [`InterfaceDiff`]: the observed
@@ -186,6 +199,20 @@ pub struct DnsChange {
     pub desired: NewDnsConfig,
 }
 
+/// A whole-firewall-policy change: the observed [`FirewallRule`] list
+/// alongside a desired [`FirewallPolicy`] whose rules differ from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct FirewallChange {
+    /// The currently observed rules, in backend read order. Never carries
+    /// the backend's current default verdict — see
+    /// [`crate::mutation::MutationSnapshot::Firewall`] for why that value
+    /// is not observable through this crate's provider contracts.
+    pub current: Vec<FirewallRule>,
+    /// The desired policy, whose `rules` differ from `current`.
+    pub desired: FirewallPolicy,
+}
+
 impl Diff {
     /// Computes the difference between `current` and `desired`.
     ///
@@ -214,6 +241,7 @@ impl Diff {
             neighbors: compute_neighbors(&current.neighbors, desired.neighbors.as_deref()),
             addresses: compute_addresses(&current.addresses, desired.addresses.as_deref()),
             dns: compute_dns(&current.dns, desired.dns.as_ref()),
+            firewall: compute_firewall(&current.firewall_rules, desired.firewall.as_ref()),
         }
     }
 }
@@ -494,6 +522,20 @@ fn compute_dns(current: &DnsConfig, desired: Option<&NewDnsConfig>) -> Option<Dn
     })
 }
 
+fn compute_firewall(
+    current: &[FirewallRule],
+    desired: Option<&FirewallPolicy>,
+) -> Option<FirewallChange> {
+    let desired = desired?;
+    if desired.rules == current {
+        return None;
+    }
+    Some(FirewallChange {
+        current: current.to_vec(),
+        desired: desired.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,6 +562,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             DnsConfig::new(),
+            Vec::new(),
         )
     }
 
@@ -943,6 +986,61 @@ mod tests {
         let desired = DesiredState::empty();
         let diff = Diff::compute(&current, &desired);
         assert_eq!(diff.dns, None);
+    }
+
+    // ---- firewall ----
+
+    #[test]
+    fn firewall_no_op_when_current_matches_desired() {
+        let rule = FirewallRule::new(
+            crate::firewall::Direction::Inbound,
+            crate::firewall::Verdict::Deny,
+        );
+        let current = CurrentState {
+            firewall_rules: vec![rule],
+            ..empty_state()
+        };
+        let desired_policy = FirewallPolicy::new(crate::firewall::Verdict::Allow).with_rule(rule);
+        let desired = DesiredState::empty().with_firewall(desired_policy);
+        let diff = Diff::compute(&current, &desired);
+        assert_eq!(diff.firewall, None);
+    }
+
+    #[test]
+    fn firewall_changed_when_desired_differs() {
+        let rule = FirewallRule::new(
+            crate::firewall::Direction::Inbound,
+            crate::firewall::Verdict::Deny,
+        );
+        let current = CurrentState {
+            firewall_rules: vec![rule],
+            ..empty_state()
+        };
+        let desired_policy = FirewallPolicy::new(crate::firewall::Verdict::Allow);
+        let desired = DesiredState::empty().with_firewall(desired_policy.clone());
+        let diff = Diff::compute(&current, &desired);
+        assert_eq!(
+            diff.firewall,
+            Some(FirewallChange {
+                current: vec![rule],
+                desired: desired_policy,
+            })
+        );
+    }
+
+    #[test]
+    fn firewall_unmanaged_produces_no_diff() {
+        let rule = FirewallRule::new(
+            crate::firewall::Direction::Inbound,
+            crate::firewall::Verdict::Deny,
+        );
+        let current = CurrentState {
+            firewall_rules: vec![rule],
+            ..empty_state()
+        };
+        let desired = DesiredState::empty();
+        let diff = Diff::compute(&current, &desired);
+        assert_eq!(diff.firewall, None);
     }
 
     // ---- whole diff ----

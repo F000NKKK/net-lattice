@@ -541,8 +541,14 @@ impl<B: LatticeBackend> SnapshotProvider for Lattice<B> {
         let neighbors = self.backend.neighbors()?;
         let addresses = self.backend.addresses()?;
         let dns = self.backend.dns_config()?;
+        let firewall_rules = self.backend.firewall_rules()?;
         Ok(CurrentState::new(
-            routes, interfaces, neighbors, addresses, dns,
+            routes,
+            interfaces,
+            neighbors,
+            addresses,
+            dns,
+            firewall_rules,
         ))
     }
 }
@@ -777,6 +783,11 @@ impl<B: LatticeBackend> Lattice<B> {
         {
             return Err(Error::Unsupported);
         }
+        if executor::requires_firewall_capability(operation)
+            && !self.supports(Capability::FIREWALL_MUTATION)
+        {
+            return Err(Error::Unsupported);
+        }
 
         match operation {
             Mutation::AddRoute(route) => {
@@ -926,6 +937,7 @@ impl<B: LatticeBackend> Lattice<B> {
                 accumulators.removed_neighbors.push(key);
             }
             Mutation::SetDnsConfig(_) => {}
+            Mutation::SetFirewallPolicy(_) => {}
             Mutation::SetInterfaceConfig(config) => self.validate_interface_config(config)?,
             _ => return Err(Error::Unsupported),
         }
@@ -1000,6 +1012,9 @@ impl<B: LatticeBackend> Lattice<B> {
                 Ok(MutationSnapshot::Neighbor(observed))
             }
             Mutation::SetDnsConfig(_) => Ok(MutationSnapshot::Dns(self.dns_config()?)),
+            Mutation::SetFirewallPolicy(_) => {
+                Ok(MutationSnapshot::Firewall(self.backend.firewall_rules()?))
+            }
             Mutation::SetInterfaceConfig(config) => Ok(MutationSnapshot::Interface(
                 self.interfaces()?
                     .into_iter()
@@ -1189,6 +1204,8 @@ impl<B: LatticeBackend> Lattice<B> {
             Mutation::SetInterfaceConfig(config) => {
                 self.set_interface_config(config.clone()).map(|_| ())
             }
+
+            Mutation::SetFirewallPolicy(policy) => self.set_firewall_policy(policy.clone()),
 
             _ => Err(Error::Unsupported),
         };
@@ -1976,10 +1993,17 @@ mod tests {
             .expect("configure interface");
         assert_eq!(configured.admin_state, AdminState::Up);
         assert_eq!(configured.mtu, Some(1500));
+        assert!(lattice.firewall_rules().expect("firewall rules").is_empty());
+        lattice
+            .set_firewall_policy(FirewallPolicy::new(Verdict::Deny))
+            .expect("set firewall policy");
+        lattice
+            .clear_firewall_policy()
+            .expect("clear firewall policy");
     }
 
     #[test]
-    fn current_state_assembles_all_five_domains() {
+    fn current_state_assembles_all_six_domains() {
         let lattice = lattice(Capability::empty());
 
         let state = lattice.current_state().expect("current state");
@@ -1989,6 +2013,10 @@ mod tests {
         assert_eq!(state.neighbors, lattice.neighbors().expect("neighbors"));
         assert_eq!(state.addresses, lattice.addresses().expect("addresses"));
         assert_eq!(state.dns, lattice.dns_config().expect("dns"));
+        assert_eq!(
+            state.firewall_rules,
+            lattice.firewall_rules().expect("firewall rules")
+        );
     }
 
     #[test]
@@ -2359,6 +2387,32 @@ mod tests {
     }
 
     #[test]
+    fn facade_executes_a_firewall_policy_plan() {
+        let lattice = lattice(Capability::FIREWALL_MUTATION);
+        let policy = FirewallPolicy::new(Verdict::Deny);
+        let plan = MutationPlan::from_operations([Mutation::SetFirewallPolicy(policy)]);
+
+        let mut options = ExecutionOptions::default();
+        let report = lattice.execute_plan(&plan, &mut options);
+
+        assert!(report.is_success());
+        assert!(matches!(report.outcome(0), Some(MutationOutcome::Applied)));
+    }
+
+    #[test]
+    fn facade_rejects_firewall_policy_plan_without_firewall_mutation_capability() {
+        let lattice = lattice(Capability::empty());
+        let policy = FirewallPolicy::new(Verdict::Allow);
+
+        assert!(matches!(
+            lattice.validate_plan(&MutationPlan::from_operations([
+                Mutation::SetFirewallPolicy(policy)
+            ])),
+            Err(Error::Unsupported)
+        ));
+    }
+
+    #[test]
     fn facade_executes_mixed_family_dns_plan_without_host_writes() {
         let lattice = lattice(Capability::DNS_MUTATION);
         let config = NewDnsConfig::with(
@@ -2478,6 +2532,12 @@ mod tests {
         assert!(matches!(
             lattice.snapshot_for_mutation(&Mutation::SetDnsConfig(NewDnsConfig::new())),
             Ok(MutationSnapshot::Dns(_))
+        ));
+        assert!(matches!(
+            lattice.snapshot_for_mutation(&Mutation::SetFirewallPolicy(FirewallPolicy::new(
+                Verdict::Allow
+            ))),
+            Ok(MutationSnapshot::Firewall(_))
         ));
         assert!(matches!(
             lattice.snapshot_for_mutation(&Mutation::SetInterfaceConfig(

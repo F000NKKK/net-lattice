@@ -41,7 +41,8 @@ pub use address::{IpAddress, Network};
 pub use apply::{ApplyPlan, ApplyPlanReport, ApplyStep, ApplyStepOutcome, NonConvergentReason};
 pub use desired_state::DesiredState;
 pub use diff::{
-    AddressChange, Change, Diff, DnsChange, InterfaceDiff, NeighborChange, RouteChange,
+    AddressChange, Change, Diff, DnsChange, FirewallChange, InterfaceDiff, NeighborChange,
+    RouteChange,
 };
 pub use dns::{DnsConfig, NewDnsConfig};
 pub use event::{ChangeKind, Event, EventDomain, EventFilter};

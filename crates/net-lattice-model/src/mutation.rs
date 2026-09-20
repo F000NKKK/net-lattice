@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::dns::DnsConfig;
 use crate::dns::NewDnsConfig;
+use crate::firewall::{FirewallPolicy, FirewallRule};
 use crate::ifaddr::{InterfaceAddress, NewInterfaceAddress};
 use crate::interface::{Interface, InterfaceConfig};
 use crate::neighbor::{NeighborEntry, StaticNeighbor};
@@ -48,6 +49,15 @@ pub enum Mutation {
     /// (static) entry before removal; a non-permanent matching entry is
     /// rejected rather than silently deleting dynamically learned state.
     RemoveStaticNeighbor(StaticNeighbor),
+    /// Atomically replaces the managed native-firewall policy.
+    ///
+    /// Unlike every other variant above, this has no separate add/remove
+    /// pair: a native-firewall rule carries no backend-synthesized identity
+    /// to add or remove individually, so the whole policy is always
+    /// replaced. Clearing the managed policy back to default-allow is
+    /// expressed as `SetFirewallPolicy(FirewallPolicy::new(Verdict::Allow))`
+    /// (an empty rule list), not a separate variant.
+    SetFirewallPolicy(FirewallPolicy),
 }
 
 /// Observed state captured immediately before a mutation is submitted.
@@ -69,6 +79,15 @@ pub enum MutationSnapshot {
     Interface(Option<Interface>),
     /// The matching observed neighbor entry, if one was observed.
     Neighbor(Option<NeighborEntry>),
+    /// The managed firewall policy's rules observed before replacement.
+    ///
+    /// This is **not** a full [`FirewallPolicy`] snapshot: `firewall_rules()`
+    /// exposes only the ordered rule list, never the default verdict that
+    /// was in effect, so restoring this snapshot cannot faithfully recreate
+    /// the previous policy's default verdict. This is the same reason
+    /// [`Mutation::SetFirewallPolicy`]'s reversibility is
+    /// [`MutationReversibility::NotGuaranteed`].
+    Firewall(Vec<FirewallRule>),
 }
 
 /// The broad effect an operation requests.
@@ -96,6 +115,8 @@ pub enum MutationKind {
     /// replacement, distinct from a bare [`MutationKind::AddRoute`] so
     /// preflight/report code inspecting `kind` does not mislabel it.
     ReplaceRoute,
+    /// Replaces the managed native-firewall policy.
+    SetFirewallPolicy,
 }
 
 /// State that must hold for an operation to be meaningful.
@@ -246,6 +267,20 @@ impl Mutation {
                 privilege: MutationPrivilege::Elevated,
                 confirmation: MutationConfirmation::NativeAcknowledgement,
                 reversibility: MutationReversibility::RequiresPriorState,
+                may_partially_apply: false,
+            },
+            Self::SetFirewallPolicy(_) => MutationSemantics {
+                kind: MutationKind::SetFirewallPolicy,
+                precondition: MutationPrecondition::Any,
+                idempotency: MutationIdempotency::Replace,
+                privilege: MutationPrivilege::Elevated,
+                confirmation: MutationConfirmation::ReadAfterWrite,
+                // Every shipped backend replaces the whole policy in one
+                // native transaction (an nftables batch, a WFP transaction,
+                // or a pf DIOCXBEGIN/DIOCXCOMMIT pair) -- unlike DNS or
+                // interface configuration, there is no known partial-write
+                // case here.
+                reversibility: MutationReversibility::NotGuaranteed,
                 may_partially_apply: false,
             },
         }
