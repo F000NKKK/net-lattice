@@ -338,6 +338,23 @@ fn weight_value(weight: u8) -> FWP_VALUE0 {
     }
 }
 
+/// Encodes `s` as a null-terminated UTF-16 buffer suitable for a `PWSTR`
+/// pointer. WFP rejects `FwpmProviderAdd0`/`FwpmSubLayerAdd0`/
+/// `FwpmFilterAdd0` with `FWP_E_NULL_DISPLAY_NAME` when `displayData.name`
+/// is null (observed on a real Windows CI runner: `FWPM_DISPLAY_DATA0
+/// ::default()`'s zeroed `PWSTR` is exactly that), so every managed object
+/// needs one of these kept alive for the duration of its `Add` call.
+fn wide_z(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn display_data(name: &mut Vec<u16>) -> FWPM_DISPLAY_DATA0 {
+    FWPM_DISPLAY_DATA0 {
+        name: windows::core::PWSTR(name.as_mut_ptr()),
+        description: windows::core::PWSTR::null(),
+    }
+}
+
 fn add_filter(
     engine: HANDLE,
     layer: GUID,
@@ -346,9 +363,10 @@ fn add_filter(
     built: &RuleConditions,
 ) -> Result<()> {
     let mut provider_key = PROVIDER_KEY;
+    let mut name = wide_z("Net Lattice managed filter");
     let filter = FWPM_FILTER0 {
         filterKey: GUID::new().unwrap_or(GUID::zeroed()),
-        displayData: FWPM_DISPLAY_DATA0::default(),
+        displayData: display_data(&mut name),
         flags: FWPM_FILTER_FLAG_PERSISTENT,
         providerKey: &mut provider_key,
         providerData: Default::default(),
@@ -433,18 +451,20 @@ fn apply_policy(policy: &FirewallPolicy) -> Result<()> {
         ok_or_platform_error(status)?;
 
         let mut provider_key = PROVIDER_KEY;
+        let mut provider_name = wide_z("Net Lattice");
         let provider = FWPM_PROVIDER0 {
             providerKey: provider_key,
-            displayData: FWPM_DISPLAY_DATA0::default(),
+            displayData: display_data(&mut provider_name),
             flags: FWPM_PROVIDER_FLAG_PERSISTENT,
             providerData: Default::default(),
             serviceName: Default::default(),
         };
         ok_or_already_exists(unsafe { FwpmProviderAdd0(engine, &provider, None) })?;
 
+        let mut sublayer_name = wide_z("Net Lattice managed firewall policy");
         let sublayer = FWPM_SUBLAYER0 {
             subLayerKey: SUBLAYER_KEY,
-            displayData: FWPM_DISPLAY_DATA0::default(),
+            displayData: display_data(&mut sublayer_name),
             flags: FWPM_SUBLAYER_FLAG_PERSISTENT,
             providerKey: &mut provider_key,
             providerData: Default::default(),
