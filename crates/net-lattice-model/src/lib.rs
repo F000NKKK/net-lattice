@@ -21,8 +21,8 @@ pub mod diff;
 pub mod dns;
 /// Change-notification event types and filtering.
 pub mod event;
-/// Native-firewall rule and policy types (kill-switch-oriented, no NAT or
-/// connection tracking).
+/// Native-firewall rule and policy types (whole-policy replacement, no NAT
+/// or connection tracking).
 pub mod firewall;
 /// Observed interface-address (IP address on interface) state.
 pub mod ifaddr;

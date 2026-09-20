@@ -6,9 +6,11 @@
 //! `default_verdict` as its chain policy. Every [`FirewallRule`] compiles to
 //! one nftables rule appended to the chain matching its
 //! [`Direction`](net_lattice_model::firewall::Direction). Built on the
-//! `nftnl` crate (Mullvad, MIT/Apache-2.0), a safe wrapper over `libnftnl`
-//! used by the Mullvad VPN client's own kill-switch — no `nft` subprocess is
-//! ever spawned. See ADR-0017 (`NL-A-19`) for the full design rationale.
+//! `nftnl` crate (Mullvad, MIT/Apache-2.0), a safe wrapper over `libnftnl` —
+//! no `nft` subprocess is ever spawned. See ADR-0017 (`NL-A-19`) for the
+//! full design rationale. See `examples/kill_switch.rs` for one concrete
+//! usage pattern (a fail-closed default-deny policy) built on this generic
+//! API; this module itself makes no kill-switch-specific assumptions.
 //!
 //! Building this crate requires the `libmnl` and `libnftnl` development
 //! packages (headers and `pkg-config` files) to be installed on the build

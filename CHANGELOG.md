@@ -12,8 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `net-lattice-model::{FirewallRule, FirewallPolicy, Direction, Protocol,
   PortRange, Verdict}`: a new, minimal native-firewall rule/policy model
   (direction, interface, remote network, protocol/port, verdict; ordered
-  rule list plus a default verdict) for kill-switch-style use cases — no
-  NAT, connection tracking, or custom chain graphs. See ADR-0017 (`NL-A-19`).
+  rule list plus a default verdict) for whole-policy replacement — no NAT,
+  connection tracking, or custom chain graphs. See ADR-0017 (`NL-A-19`); see
+  `net-lattice-backend-linux/examples/kill_switch.rs` for a concrete
+  fail-closed usage pattern built on this generic model.
 - `net-lattice-platform::{FirewallProvider, FirewallMutator}` and
   `Capability::FIREWALL_MUTATION`: generic provider/mutator traits following
   the existing `RouteProvider`/`RouteMutator` pattern.

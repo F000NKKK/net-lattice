@@ -212,7 +212,7 @@ facade feature.
 | Static neighbor (ARP/NDP) mutation | ✅ | ✅ | ✅ |
 | DNS resolver inspection | ✅ | ✅ | ✅ |
 | DNS resolver mutation | ✅ | ✅ | ✅ |
-| Native-firewall policy management (kill-switch) | ✅ | — | — |
+| Native-firewall policy management | ✅ | — | — |
 | Route/interface/address change monitoring | ✅ | ✅ | ✅ |
 | Neighbor change monitoring | ✅ | ⚠ | ✅ |
 | All-domain monitoring (`watch()`) | ✅ | — | ✅ |

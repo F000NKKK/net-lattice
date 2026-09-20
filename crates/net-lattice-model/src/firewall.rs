@@ -18,7 +18,8 @@ pub enum Direction {
 /// The terminating action a matching [`FirewallRule`] applies.
 ///
 /// There is no `Reject`-with-response variant in this domain's current
-/// scope: a kill-switch only needs a silent drop versus an explicit allow.
+/// scope: callers needing only a silent drop versus an explicit allow (the
+/// common case for policy replacement) are fully served by these two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Verdict {

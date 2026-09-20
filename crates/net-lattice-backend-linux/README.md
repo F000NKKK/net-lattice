@@ -11,8 +11,7 @@ It implements native inspection, mutation, and monitoring behind the generic
   ARP/NDP neighbor mutation;
 - native-firewall (nftables) policy management (`FirewallMutator`,
   `Capability::FIREWALL_MUTATION`) — replaces the rules in one
-  Net-Lattice-owned table/chain pair atomically, for kill-switch-style use
-  cases;
+  Net-Lattice-owned table/chain pair atomically;
 - Netlink change subscriptions and optional native async delivery;
 - translation of native errors and state into portable Net Lattice types.
 
@@ -55,6 +54,10 @@ fn main() -> net_lattice_core::Result<()> {
     Ok(())
 }
 ```
+
+See `examples/kill_switch.rs` for a fail-closed default-deny policy built
+from this generic firewall API — the crate itself is not kill-switch
+specific.
 
 ## Privileges and safety
 

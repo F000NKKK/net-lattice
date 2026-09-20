@@ -8,9 +8,9 @@ use crate::FirewallProvider;
 /// call replaces the *entire* managed policy atomically (one netlink
 /// transaction on Linux, one WFP transaction on Windows, one ticket-based
 /// `pf` ruleset commit on macOS) rather than exposing incremental
-/// add/remove-by-id the way [`crate::RouteMutator`] does: a caller enforcing
-/// a kill-switch wants "this exact policy is in effect now," not to reason
-/// about accumulated rule state across native reboots or crashes.
+/// add/remove-by-id the way [`crate::RouteMutator`] does: a caller wants
+/// "this exact policy is in effect now," not to reason about accumulated
+/// rule state across native reboots or crashes.
 ///
 /// Every mutation is confined to this crate's own managed native-firewall
 /// table/sublayer/anchor. A backend must never read or write firewall state
