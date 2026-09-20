@@ -77,6 +77,15 @@ and a breaking change will require an explicit major version bump.
   source rather than a mismatched modern OpenBSD header or memory
   reconstruction. Verified with a passing privileged native round-trip
   test on real macOS CI (root).
+- `net-lattice::{Lattice::firewall_rules, Lattice::set_firewall_policy,
+  Lattice::clear_firewall_policy}`: facade wiring for the Firewall domain,
+  reachable the same way DNS/route/neighbor/address mutation already are
+  — no need to depend on a platform-specific backend crate directly.
+  `LatticeBackend` now requires `FirewallMutator`/`FirewallProvider`; this
+  is a breaking addition for a third-party backend implementation
+  predating this change (see ARCHITECTURE.md's Frozen 1.0 Public API
+  Surface audit for the exact scope). Added
+  `net-lattice/examples/firewall_policy.rs`.
 
 ## [0.21.2] - 2026-09-20
 
