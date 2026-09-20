@@ -99,5 +99,7 @@ fn main() -> net_lattice_core::Result<()> {
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
-    eprintln!("this example only runs on target_os = \"linux\" (uses nftables via net-lattice-backend-linux)");
+    eprintln!(
+        "this example only runs on target_os = \"linux\" (uses nftables via net-lattice-backend-linux)"
+    );
 }
