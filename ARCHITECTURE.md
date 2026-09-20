@@ -5,12 +5,9 @@
 🇺🇸 **English** | 🇷🇺 [Русский](ARCHITECTURE.ru.md)
 
 This document describes the workspace structure for Net Lattice and the
-design principles behind it. The Incremental Delivery Plan below is
-implemented through its 0.22 row (firewall) and the 1.0 row (the stage-0.21
-public-API freeze audit that gates 1.0 is complete); only the post-1.0
-capability-domain rows (VLAN, VRF, namespaces) describe planned,
-not-yet-built work. See [CHANGELOG.md](CHANGELOG.md) and
-[README.md](README.md) for the dated record of what has shipped.
+design principles behind it. `1.0` is the current stable line; see the
+"Roadmap" section below for what is planned for 2.0+, and
+[CHANGELOG.md](CHANGELOG.md) for the dated record of what has shipped.
 
 Net Lattice provides, and privileged Linux/Windows/macOS CI verifies:
 `net-lattice-core` and `net-lattice-ip`; `net-lattice-model`'s `route`,

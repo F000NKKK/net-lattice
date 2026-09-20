@@ -4,32 +4,12 @@ Thank you for your interest in contributing to Net Lattice. This document descri
 
 ## Project Status
 
-Net Lattice provides cross-platform network inspection, route, interface,
-interface-address, DNS resolver, and static ARP/NDP neighbor mutation
-(`NeighborMutator`), interface administrative-state and MTU configuration,
-inspectable data-only mutation plans, side-effect-free `MutationPreflight`
-analysis, ordered transaction execution with runtime preflight,
-operation-boundary cancellation, typed prior-state snapshots, phase/timing
-reports and explicit compensation, bounded object/domain-filterable
-monitoring with optional native async event delivery, and whole-system
-`CurrentState` snapshot assembly (`net-lattice-model::CurrentState`,
-`net-lattice-platform::SnapshotProvider`, `Lattice::current_state()`) on
-Linux, Windows, and macOS, verified by privileged CI on all three platforms.
-`InterfaceConfig` remains a partial imperative patch, but a declarative
-desired-state layer now sits alongside it: `DesiredState` expresses
-whole-system intent, `Diff::compute` computes a pure, side-effect-free
-difference against an observed `CurrentState`, `ApplyPlan::compile` compiles
-that difference into a pure, inspectable plan, and
-`Lattice::execute_apply_plan`/`Lattice::apply` execute that plan against the
-connected backend. `RouteProvider`/`RouteMutator` follow the read-only
-provider / mutator pattern used by every other domain.
-Large capability domains remain ahead, but the published read, mutation,
-monitoring, planning, snapshot, declarative-apply, and backend-extension
-APIs are real public surface. The most valuable contributions right now are:
+`1.0` is the current stable line — see [README.md](README.md)'s Roadmap and
+[ARCHITECTURE.md](ARCHITECTURE.md)'s "Frozen 1.0 Public API Surface" for the
+full inventory. The most valuable contributions right now are:
 
 - Feedback on the project's vision, scope, and roadmap (see [README.md](README.md))
-- Discussion of API design and architecture for upcoming stages
-- Implementation work on the next stages in [ARCHITECTURE.md](ARCHITECTURE.md)'s delivery plan — pre-1.0 hardening is done (see the "Frozen 1.0 Public API Surface" audit) and firewall (stage 0.22) has since shipped on all three platforms; the remaining capability domains (VLAN/VRF/namespace) are deferred to the post-1.0 (2.0+) line, none of which are prerequisites for 1.0
+- Design discussion for the 2.0+ domains (VLAN, VRF, namespaces — see the Roadmap)
 - Documentation and tooling improvements
 
 Please read [ARCHITECTURE.md](ARCHITECTURE.md) before proposing a new crate, module, or provider trait — it documents the dependency rules (e.g. `net-lattice-platform` never depends on `net-lattice-model`) and the staged delivery order this project follows.
