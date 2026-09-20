@@ -36,6 +36,15 @@ tokio = { version = "1", features = ["rt"] }
 futures = "0.3"
 
 rtnetlink = "0.23"
+# `nftnl-1-2-0` is the lowest vendored-bindings baseline in `nftnl-sys` that
+# compiles against this workspace's `nftnl` version at all (lower baselines
+# lack `NFTNL_UDATA_RULE_COMMENT`, which `nftnl::Rule::set_comment` requires
+# unconditionally) — chosen for maximum compatibility with older installed
+# `libnftnl` versions, not because the build machine's `libnftnl` must be
+# exactly 1.2.0. See net-lattice-backend-linux's README for the system
+# `libmnl`/`libnftnl` development-package build requirement this introduces.
+nftnl = { version = "0.9", features = ["nftnl-1-2-0"] }
+mnl = "0.3"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",

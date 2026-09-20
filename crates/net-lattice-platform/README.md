@@ -9,7 +9,9 @@ public facade and native platform backends.
   `RouteProvider`/`RouteMutator`, `InterfaceProvider`/`InterfaceMutator`
   (desired administrative-state and MTU patches), `DnsProvider`/
   `DnsMutator`, `NeighborProvider`/`NeighborMutator` (static ARP/NDP entry
-  add/remove intent), and `AddressProvider`/`AddressMutator`;
+  add/remove intent), `AddressProvider`/`AddressMutator`, and
+  `FirewallProvider`/`FirewallMutator` (whole-policy atomic replace of one
+  backend-owned native-firewall table/chain pair);
   `RouteMutator` additionally exposes two default-provided methods,
   `supports_route_metric` and `route_replace_order` (returning the new
   `RouteReplaceOrder` enum), describing fixed per-backend facts a

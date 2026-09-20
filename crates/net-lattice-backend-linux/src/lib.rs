@@ -41,10 +41,16 @@ use rtnetlink::packet_route::neighbour::{
 use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteMessage};
 use rtnetlink::{Handle, MulticastGroup, RouteMessageBuilder};
 
+mod firewall;
+
 /// The Linux Netlink-backed implementation of Net Lattice's provider traits.
 pub struct LinuxBackend {
     runtime: tokio::runtime::Runtime,
     handle: Handle,
+    /// The last [`net_lattice_model::firewall::FirewallPolicy`] this process
+    /// applied via `set_firewall_policy`, used to serve `firewall_rules()`
+    /// until a real native GETRULE dump is implemented (tracked separately).
+    firewall_policy: std::sync::Mutex<Option<net_lattice_model::firewall::FirewallPolicy>>,
 }
 
 struct LinuxWatch {
@@ -74,7 +80,11 @@ impl LinuxBackend {
         let (connection, handle, _) =
             rtnetlink::new_connection().map_err(|err| Error::Platform(io_error_code(&err)))?;
         runtime.spawn(connection);
-        Ok(Self { runtime, handle })
+        Ok(Self {
+            runtime,
+            handle,
+            firewall_policy: std::sync::Mutex::new(None),
+        })
     }
 }
 
@@ -889,6 +899,9 @@ impl CapabilityProvider for LinuxBackend {
     /// `RTM_DELNEIGH` requests (see `impl NeighborMutator for LinuxBackend`).
     /// This capability is not yet reachable through the public `net-lattice`
     /// facade — that wiring is Stage 0.17 Slice D, not this backend.
+    /// `FIREWALL_MUTATION` is truthful too: `FirewallMutator` submits a real
+    /// nftables table/chain/rule transaction over Netlink (see `impl
+    /// FirewallMutator for LinuxBackend` in `firewall.rs`).
     fn capabilities(&self) -> Capability {
         Capability::IPV6
             | Capability::MONITORING
@@ -897,6 +910,7 @@ impl CapabilityProvider for LinuxBackend {
             | Capability::INTERFACE_MTU
             | Capability::NEIGHBOR_MUTATION
             | Capability::ROUTE_MUTATION
+            | Capability::FIREWALL_MUTATION
     }
 }
 

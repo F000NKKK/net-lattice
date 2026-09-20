@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `net-lattice-model::{FirewallRule, FirewallPolicy, Direction, Protocol,
+  PortRange, Verdict}`: a new, minimal native-firewall rule/policy model
+  (direction, interface, remote network, protocol/port, verdict; ordered
+  rule list plus a default verdict) for kill-switch-style use cases — no
+  NAT, connection tracking, or custom chain graphs. See ADR-0017 (`NL-A-19`).
+- `net-lattice-platform::{FirewallProvider, FirewallMutator}` and
+  `Capability::FIREWALL_MUTATION`: generic provider/mutator traits following
+  the existing `RouteProvider`/`RouteMutator` pattern.
+  `FirewallMutator::set_firewall_policy` replaces the whole managed policy
+  atomically rather than exposing incremental add/remove.
+- `net-lattice-backend-linux`: a real `FirewallMutator` implementation
+  managing one Net-Lattice-owned nftables table (`net_lattice`, chains
+  `inbound`/`outbound`) via the `nftnl` crate (Mullvad, MIT/Apache-2.0) over
+  `NETLINK_NETFILTER` — no `nft` subprocess. Building this crate now
+  requires the `libmnl`/`libnftnl` development packages; see the crate's
+  README. `FirewallProvider::firewall_rules` currently returns the last
+  policy this process applied, not a live kernel dump (tracked separately,
+  `NL-165`). **Not yet independently verified against a live kernel** — the
+  added privileged test (`set_then_clear_firewall_policy_round_trips_
+  through_the_kernel`, `#[ignore]`d) needs a `CAP_NET_ADMIN` run before this
+  implementation is considered reviewed.
+- Windows (WFP) and macOS (`pf`) firewall backends are planned as separate
+  follow-on work, not included in this change.
+
 ## [0.21.2] - 2026-09-20
 
 ### Fixed

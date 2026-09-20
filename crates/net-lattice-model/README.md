@@ -14,6 +14,10 @@ models data and contracts; it never inspects or mutates the host system.
   `Route` and carrying no route identifier (no backend accepts one back as
   mutation input); its `metric` field is honored on Linux and Windows only
   and silently ignored on Darwin, matching the observed-side platform gap;
+- `FirewallRule`/`FirewallPolicy`, a minimal native-firewall rule model
+  (direction, interface, remote network, protocol/port, verdict) for
+  kill-switch-style use cases — no NAT, connection tracking, or custom
+  chain graphs;
 - typed object identifiers and filtered change events;
 - mutation descriptions, semantics, snapshots, plans, and execution reports;
 - explicit separation between inspectable plan data and runtime execution;

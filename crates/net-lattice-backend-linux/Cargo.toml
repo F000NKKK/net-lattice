@@ -25,3 +25,5 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 futures = { workspace = true }
 
 rtnetlink = { workspace = true }
+nftnl = { workspace = true }
+mnl = { workspace = true }
