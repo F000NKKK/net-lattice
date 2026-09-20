@@ -288,7 +288,8 @@ pub mod mutation {
     pub use net_lattice_model::desired_state::DesiredState;
     #[doc(inline)]
     pub use net_lattice_model::diff::{
-        AddressChange, Change, Diff, DnsChange, InterfaceDiff, NeighborChange, RouteChange,
+        AddressChange, Change, Diff, DnsChange, FirewallChange, InterfaceDiff, NeighborChange,
+        RouteChange,
     };
     #[doc(inline)]
     pub use net_lattice_model::dns::NewDnsConfig;
