@@ -1219,70 +1219,23 @@ Lattice нигде в пути событий не даёт гарантии exa
   широкой экосистеме Lattice, а не дорожной карты этого крейта; см. раздел
   README.md «The Lattice ecosystem».
 
-## План поэтапной поставки
+## Дорожная карта
 
-Полная модель выше — это цель, а не отправная точка. Крейты и модули
-вводятся только тогда, когда под них есть реальная работа по реализации.
+`1.0` — текущая стабильная линия: полная кроссплатформенная поддержка
+inspection, monitoring, imperative mutation, упорядоченных транзакций,
+декларативного apply и управления native-firewall policy, каждая с
+privileged regression coverage на Linux, Windows и macOS. Аудированную
+поверхность см. в «Замороженная публичная поверхность API версии 1.0» выше,
+датированную историю — в [CHANGELOG.md](CHANGELOG.md).
 
-Строки до 0.22 (firewall) включительно — и freeze/audit 1.0, который она
-закрывает — реализованы и доступны сегодня; только строки доменов Capability
-после 1.0 (VLAN, VRF, namespaces) описывают планируемую, ещё не
-реализованную работу:
+Запланировано на 2.0+ — каждый пункт достаточно велик для отдельного
+архитектурного прохода, ни один не является prerequisite для 1.0:
 
-| Этап | Объём |
-|-------|-------|
-| 0.1 | `net-lattice-core`, `net-lattice-ip`, `net-lattice-model` (только модуль `route`), `net-lattice-platform` (`RouteProvider`), `net-lattice-backend-linux` (маршруты через Netlink), `net-lattice` |
-| 0.2 | `net-lattice-backend-windows` (`RouteProvider`) |
-| 0.3 | `net-lattice-backend-darwin` (`RouteProvider`) |
-| 0.4 | модуль `interface` + `InterfaceProvider` на всех backend'ах |
-| 0.5 | модуль `dns` + `DnsProvider` на всех backend'ах |
-| 0.6 | модуль `neighbor` + `NeighborProvider` (ARP/NDP) на всех backend'ах |
-| 0.7 | модуль `ifaddr` + `AddressProvider` (IP-адреса интерфейсов) на всех backend'ах |
-| 0.8 | модуль `event` + синхронные `EventProvider`/`EventReceiver`; мониторинг через Netlink multicast (Linux), PF_ROUTE (macOS) и уведомления IP Helper (Windows). |
-| 0.9 | `NewInterfaceAddress` + `AddressMutator`; нативное назначение/удаление IPv4/IPv6-адресов через Netlink (Linux), IP Helper (Windows) и address ioctl (macOS). |
-| 0.10 | Семантика событий: bounded delivery, overflow/resynchronization, filtering, cancellation и распространение ошибок фонового watcher'а. |
-| 0.11 | Опциональная feature `async` в `net-lattice`; `net-lattice-async` предоставляет один runtime-agnostic `EventStream`, а Linux (Tokio Netlink), Windows (callbacks IP Helper) и macOS (reader PF_ROUTE) доставляют события прямо в bounded Tokio transports. |
-| 0.12 | Стабилизация API watcher'ов: composable object/domain filters до помещения в очередь, validation capabilities мониторинга по доменам и одинаковая sync/async семантика filter. `MONITORING` — aggregate всех доменов; filter с недоступным доменом отклоняется до native-регистрации. |
-| 0.13 | Изменение DNS с моделью intent/observed state: `NewDnsConfig` применяется через поддерживаемые системные механизмы, а результирующий `DnsConfig` повторно читается на Linux, Windows и macOS. |
-| 0.14 | Модель mutation-операций: inspectable значения `Mutation` и упорядоченные `MutationPlan` для изменений routes/addresses/DNS; явные классификации preconditions, idempotency, privileges, confirmation, partial application и reversibility. Включает side-effect-free анализ `MutationPreflight`, а также типизированные `MutationOutcome`, `MutationPlanReport` и `RollbackStatus` для отчёта исполнителя; сами планы не имеют side effects исполнения или rollback. |
-| 0.15 | Базовое исполнение транзакций: runtime capability и object-precondition preflight через `Lattice::validate_plan`, provider-backed capture `MutationSnapshot` через `snapshot_for_mutation`, отправка операций по порядку через `Lattice::execute_plan`, настроенный единым `ExecutionOptions`, результаты операций с фазами и длительностями, остановка после первой ошибки, cancellation на границе операции, capture prior state и явно переданный compensator в обратном порядке. Ignored native facade route round-trip и compensation scenarios запускаются в каждом privileged CI job; DNS partial-application integration намеренно остаётся non-destructive. |
-| 0.16 | Конфигурация интерфейсов: отдельный desired `InterfaceConfig`, независимые capability gates для admin state/MTU, read-after-write mutation на Linux/Windows/macOS, typed snapshots executor'а, native mappings событий интерфейса и privileged проверки submission/readback/restoration. Destructive end-to-end event proof остаётся follow-up для isolated topology. |
-| 0.17 | Изменение соседей, паритет IPv6 для DNS и изолированная кроссплатформенная topology-приёмка для деструктивных операций маршрутов/адресов/соседей и facade-потоков. |
-| 0.18 | Основа snapshot: `CurrentState` последовательно собирается из реализованных provider'ов, с явно определёнными scope, consistency и partial-read семантиками snapshot. |
-| 0.19 | Декларативная модель и diff: конфигурационные типы `DesiredState` остаются отдельными от наблюдаемых типов; создаётся inspectable `Diff` без его применения. |
-| 0.20 | Декларативное применение: `Diff` компилируется в `ApplyPlan`, исполняется через transaction engine и сообщает о convergence, non-convergence и результатах compensation. |
-| 0.21 | Pre-1.0 hardening: заморозка core model, provider extension contracts, правил identity, значений capability, гарантий событий и матрицы поддержки платформ; завершение cross-platform privileged regression coverage и migration guidance. Завершено — см. «Замороженная публичная поверхность API версии 1.0» ниже. |
-| 0.22 | Firewall: модель `FirewallRule`/`FirewallPolicy`, платформенный контракт `FirewallProvider`/`FirewallMutator` и нативные backend'ы на Linux (nftables через `nftnl`), Windows (WFP) и macOS (`pf` через сырой ioctl `/dev/pf`) — каждый подтверждён прохождением привилегированного нативного round-trip теста на своём CI-раннере. См. ADR-0017. Завершено. |
-| 1.0 | Стабильная кроссплатформенная основа для реализованных контрактов inspection, monitoring, imperative mutation, transactions, declarative apply и firewall. Закрывается compatibility audit из 0.21, а не реализацией всех будущих capability-доменов — этот аудит завершён, и 1.0 готова к первому стабильному релизу. |
-| 2.0+ | Оставшиеся домены Capability, каждый вводится только вместе со своей read model, intent model, семантикой mutation, событиями там, где их поддерживает ОС, capabilities и all-platform tests: VLAN, VRF и namespaces. Отложены в линию после 1.0, а не в pre-1.0 стадию, поскольку ни один из них не является prerequisite для 1.0, и каждый достаточно велик, чтобы заслуживать отдельного архитектурного прохода в рамках своей major-линии. Управление tunnel-интерфейсами вне зоны ответственности этого репозитория (см. крейт экосистемы `tunnel-lattice`). |
+| Домен | Содержание |
+|---|---|
+| VLAN | модель read/intent/mutation для tagged-интерфейсов, единая для всех трёх backend'ов |
+| VRF | модель изоляции таблиц маршрутизации и привязка по backend'ам |
+| Namespaces | изоляция process/network namespace — асимметрична между Linux/Windows/macOS, требует отдельного архитектурного прохода до начала реализации |
 
-Ожидается, что каждый этап проверяет архитектуру перед началом следующего;
-более ранние этапы могут повлиять на корректировки более поздних.
-
-### Путь к 1.0
-
-Номера этапов выше — границы поставки, а не обещание выпустить каждый заголовок
-одним релизом. Этап может быть разделён, если платформенное поведение или
-публичный контракт требуют независимой проверки. И наоборот, небольшой
-hardening-релиз может быть выпущен между этапами без изменения этого плана.
-
-Фасад предоставляет завершённые read API; imperative mutation для routes,
-addresses, DNS, интерфейсов (`InterfaceMutator`/`InterfaceConfig`) и
-статических соседей (`NeighborMutator`/`StaticNeighbor`), каждый со своим
-intent-типом, отдельным от observed state; упорядоченный transaction executor
-(`Lattice::execute_plan`/`execute_apply_plan`); и декларативный слой
-(`DesiredState`, `Diff::compute`, `ApplyPlan::compile`, `Lattice::apply`),
-определённый через явные операции, а не через повторное использование
-observed-объектов как desired state. Это и есть стабильная платформа
-конфигурации, которую требует граница 1.0.
-
-Граница 1.0 намеренно не требует поддержки VLAN, VRF или namespaces — они
-отложены в линию после 1.0 (2.0+). Поддержка firewall (стадия 0.22) вышла
-до 1.0 как полностью реализованный и независимо подтверждённый
-capability-домен, но никогда не была требованием для 1.0; граница требует
-лишь, чтобы каждый уже заявленный как стабильный API имел документированный
-кроссплатформенный контракт, честное поведение capabilities и privileges,
-bounded-семантику событий, детерминированные transaction reports и
-privileged regression coverage на каждой поддерживаемой платформе — см.
-аудированный перечень в разделе «Замороженная публичная поверхность API
-версии 1.0» выше, удовлетворяющий этому требованию.
+Управление tunnel-интерфейсами полностью вне зоны ответственности этого
+репозитория (см. крейт экосистемы `tunnel-lattice`).
