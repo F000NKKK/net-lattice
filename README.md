@@ -17,12 +17,14 @@
 
 **Net Lattice** is a modern, cross-platform Rust library for configuring and inspecting operating system networking through a single, strongly typed API.
 
-> **Status:** Net Lattice provides cross-platform network inspection, route,
-> address, DNS, administrative-state, MTU, and static ARP/NDP neighbor
+> **Status:** `1.0` is the current stable line. Net Lattice provides
+> cross-platform network inspection, route, address, DNS,
+> administrative-state, MTU, static ARP/NDP neighbor, and native-firewall
 > mutation, inspectable mutation plans, ordered transaction execution with
-> cancellation, snapshots, compensation, and phase-aware reports, and
-> whole-system `CurrentState` snapshots on Linux, Windows, and macOS. See
-> Current Status below for the full capability breakdown.
+> cancellation, snapshots, compensation, and phase-aware reports, declarative
+> desired-state/diff/apply, and whole-system `CurrentState` snapshots on
+> Linux, Windows, and macOS. See Current Status below for the full
+> capability breakdown.
 
 ## Overview
 
@@ -140,9 +142,9 @@ builders, with no backend dependency of its own — and
 `Diff::compute(&CurrentState, &DesiredState) -> Diff`
 (`net_lattice::mutation::Diff`) computes a pure, side-effect-free difference
 between the two: route/neighbor/address as natural-key add/remove(/change)
-sets, interface as a per-field patch-diff, and DNS as a whole-value
-comparison. `Diff::compute` performs no I/O and calls no provider/backend
-method. `ApplyPlan::compile(&Diff) -> ApplyPlan`
+sets, interface as a per-field patch-diff, and DNS and firewall policy each
+as a whole-value comparison. `Diff::compute` performs no I/O and calls no
+provider/backend method. `ApplyPlan::compile(&Diff) -> ApplyPlan`
 (`net_lattice::mutation::ApplyPlan`) is likewise pure and side-effect-free,
 compiling the diff into an ordered list of `ApplyStep`s (see the
 [architecture](ARCHITECTURE.md)'s State Model section for how a paired
@@ -158,9 +160,9 @@ plan first. See the `declarative_diff` example for a read-only diff
 walkthrough and the `declarative_apply` example for a full apply
 walkthrough.
 
-The following surface, described by the [architecture](ARCHITECTURE.md)'s
-Incremental Delivery Plan, is verified by the privileged Linux, Windows, and
-macOS CI jobs:
+The following surface, the frozen 1.0 public API described by
+[architecture](ARCHITECTURE.md), is verified by the privileged Linux,
+Windows, and macOS CI jobs:
 
 - `net-lattice-core`, `net-lattice-ip`
 - `net-lattice-model`'s `route`, `mac`, `interface`, `dns`, `neighbor`, `ifaddr`, `event`, and `mutation` modules; `NewInterfaceAddress`, `NewDnsConfig`, and `StaticNeighbor` express mutation intent separately from observed state
@@ -317,32 +319,25 @@ duplicating those contracts here.
 
 ## Roadmap
 
-The current capability set is described above, under Capabilities and
-Current Status; the list below is the forward delivery plan, kept as a
-sequential overview rather than a status ledger:
+1.0 is the current stable line: complete cross-platform inspection,
+monitoring, imperative mutation, ordered transactions, declarative apply, and
+native-firewall policy management (imperative and transactional), each with
+privileged regression coverage on Linux, Windows, and macOS. See
+[CHANGELOG.md](CHANGELOG.md) for the dated history of how it got here and
+[ARCHITECTURE.md](ARCHITECTURE.md) for the frozen public-API surface.
 
-1. **Bootstrap** — repository infrastructure, licensing, community health files, and tooling configuration.
-2. **Design** — crate layout, core abstractions, and platform abstraction strategy. See [ARCHITECTURE.md](ARCHITECTURE.md) for the workspace structure.
-3. **Foundations** — core IP/route/interface types and all three platform backends.
-4. **Platform parity** — Linux, Windows, and macOS route and address mutation, interface, DNS-read, neighbor-read, address-read, and monitoring backends.
-5. **Stage 0.9: Address mutation** — cross-platform assignment and removal of interface IPv4/IPv6 addresses.
-6. **Stage 0.10: Event semantics** — bounded delivery, overflow and resynchronization signaling, filtering, cancellation, and error propagation.
-7. **Stage 0.11: Async events** — optional `async` facade feature, one runtime-agnostic `EventStream`, and native Tokio-backed delivery in every platform backend.
-8. **Stage 0.12: Watcher API stabilization** — composable object/domain filters, filtering before queueing, monitoring-capability validation, and consistent filter semantics across synchronous and async watchers.
-9. **Stage 0.13: DNS mutation** — capability-gated resolver replacement through supported system mechanisms on Linux, Windows, and macOS.
-10. **Stage 0.14: Mutation operation model** — inspectable `Mutation` values and data-only `MutationPlan`s for route, address, and DNS mutations; preconditions, idempotency, privilege, confirmation, partial-application, and reversibility are explicit.
-11. **Stage 0.15: Transaction execution** — ordered plans, per-operation outcomes, phase/timing diagnostics, cancellation and failure boundaries, plus compensation for documented reversible operations.
-12. **Stage 0.16: Interface configuration** — separate desired interface configuration, capability-gated admin-state and MTU mutation, read-after-write results, and platform-parity tests.
-13. **Stage 0.17: Neighbor mutation, IPv6 DNS parity, and isolated topology acceptance** — intent/observed static ARP/NDP management (`NeighborMutator`, ADR-0001), the `RouteProvider`/`RouteMutator` split (ADR-0002), IPv6 DNS parity, and safe cross-platform destructive-operation testing, verified on privileged Linux, Windows, and macOS CI.
-14. **Stage 0.18: Snapshots** — consistently assembled `CurrentState` with explicit scope, consistency, and partial-read semantics.
-15. **Stage 0.19: Declarative diff** — separate `DesiredState` configuration types and an inspectable `Diff`, without mutation.
-16. **Stage 0.20: Declarative apply** — compile a `Diff` into an `ApplyPlan` and execute it through the transaction engine.
-17. **Stage 0.21: Pre-1.0 hardening** — done. Public contracts, identity and capability rules, event guarantees, platform matrix, and privileged regression coverage are frozen; see [ARCHITECTURE.md](ARCHITECTURE.md)'s public-API freeze audit.
-18. **Stage 0.22: Firewall** — done. `FirewallProvider`/`FirewallMutator` (ADR-0017) shipped on Linux (nftables), Windows (WFP), and macOS (`pf`), each verified with a passing privileged native round-trip test on its own CI runner.
-19. **Stage 2.0+: Remaining capability domains** — VLAN, VRF, and namespaces, each with a complete read/intent/mutation/event/capability/test contract. Deferred to the post-1.0 line rather than a pre-1.0 stage: none are prerequisites for 1.0, and each is independently large enough to warrant its own major-line design pass. Tunnel interface management is out of scope for this repository; see [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) in the ecosystem table above.
-20. **1.0** — stable foundation for the inspection, monitoring, imperative mutation, transaction, and declarative-apply contracts. The stage 0.21 compatibility audit that gates it is complete; the first stable `1.0.0` release is ready for publication.
+Planned for 2.0+ — each independently large enough to need its own
+architecture pass, none a 1.0 prerequisite:
 
-Stages are delivery boundaries, not a promise of one release per heading: platform validation may split a stage, and focused hardening releases may appear between stages. See [CHANGELOG.md](CHANGELOG.md) for what has shipped in each dated release.
+| Domain | Scope |
+|---|---|
+| VLAN | tagged-interface read/intent/mutation model, consistent across all three backends |
+| VRF | routing-table isolation model and per-backend binding |
+| Namespaces | process/network namespace isolation — not symmetric across Linux/Windows/macOS, needs its own design pass before implementation starts |
+
+Tunnel interface management is out of scope for this repository entirely;
+see [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) in the
+ecosystem table above.
 
 ## Contributing
 
