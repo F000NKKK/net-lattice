@@ -28,14 +28,17 @@
 //! counters, OS-fingerprint state, ALTQ/dummynet scheduling) are left at
 //! their zeroed default, mirroring how `pfctl` itself builds a rule.
 //!
-//! **This has not been verified against a live kernel or even compiled
-//! against a real macOS SDK by the author of this change** — only
-//! cross-compiled via `cargo check`/`clippy --target
-//! {x86_64,aarch64}-apple-darwin`, which cannot catch an ABI mismatch in a
-//! hand-transcribed struct (see above). The added `#[ignore]`d privileged
-//! test is the outstanding verification gate; a passing run against a real
-//! `macos-latest` CI runner (or `pfctl -a net_lattice -sr` inspection while
-//! it's paused mid-run) is required before trusting this implementation.
+//! The author of this change has never compiled this against a real macOS
+//! SDK or run it against a live kernel — only cross-compiled via `cargo
+//! check`/`clippy --target {x86_64,aarch64}-apple-darwin`, which cannot
+//! catch an ABI mismatch in a hand-transcribed struct (see above). The
+//! mutator path (`set_firewall_policy`/`clear_firewall_policy`, i.e.
+//! `DIOCXBEGIN`/`DIOCADDRULE`/`DIOCXCOMMIT`) has since passed a privileged
+//! round-trip test on real `macos-latest` CI as root, which is real
+//! evidence the transcribed ABI is correct — but each subsequent change to
+//! this module (e.g. the `DIOCGETRULES`/`DIOCGETRULE` read path) still
+//! needs its own CI run before being trusted; see the specific privileged
+//! test docs below for what has and hasn't been confirmed yet.
 //!
 //! One `pf` anchor (`net_lattice`) holds every rule this module manages,
 //! added via a single `DIOCXBEGIN`/`DIOCADDRULE*`/`DIOCXCOMMIT` transaction
@@ -919,13 +922,16 @@ mod tests {
     /// enabled by default). Not run by default for the same reason as
     /// this crate's other privileged tests.
     ///
-    /// This has not been verified against a live kernel by the author of
-    /// this change — see this module's doc comment for the full
-    /// verification gap (no macOS host, only cross-compilation, and a
-    /// hand-transcribed ioctl struct that cross-compilation cannot
-    /// validate). A passing run of this test, or `pfctl -a net_lattice -sr`
-    /// inspection while it is paused mid-run, is the outstanding
-    /// verification this crate's own author could not perform.
+    /// An earlier, narrower version of this test (one rule: outbound
+    /// UDP/53 to a /24) has passed on real macOS CI as root — the
+    /// hand-transcribed `pfvar` ABI (see this module's doc comment for its
+    /// provenance) held up under a real `DIOCXBEGIN`/`DIOCADDRULE`/
+    /// `DIOCXCOMMIT` round trip on the first attempt. This expanded
+    /// version, covering the `decode_pf_rule`/`DIOCGETRULES`/`DIOCGETRULE`
+    /// read path added for `NL-165`, has not yet had its own CI run — the
+    /// author of this change has no macOS host locally to verify it
+    /// directly (only cross-compilation, which cannot validate ABI
+    /// correctness at all, only that the Rust itself type-checks).
     ///
     /// Exercises every match shape `decode_pf_rule` handles (interface,
     /// IPv4 remote, IPv6 remote, a single port, a port range, and a bare

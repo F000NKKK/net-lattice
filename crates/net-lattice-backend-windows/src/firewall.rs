@@ -818,15 +818,17 @@ mod tests {
     /// remote, IPv6 remote, a single port, a port range, and a bare
     /// protocol match) across *both* directions in one policy, to verify
     /// the module doc comment's claim that weight-based merging
-    /// reconstructs the exact original interleaved order. This has not
-    /// been verified against a live WFP engine by the author of this
-    /// change — no Windows host was available in the environment it was
-    /// written in (only cross-compilation via `cargo check`/`clippy
-    /// --target x86_64-pc-windows-gnu`, which catches type/signature
-    /// mismatches but proves nothing about runtime behavior). A passing run
-    /// of this test, or inspecting the applied filters with `netsh wfp show
-    /// filters` while it is paused mid-run, is the outstanding verification
-    /// this crate's own author could not perform.
+    /// reconstructs the exact original interleaved order. An earlier,
+    /// narrower version of this test (one rule: outbound UDP/53 to a /24)
+    /// has passed on real Windows CI as Administrator, including catching
+    /// a real `FWP_E_NULL_DISPLAY_NAME` defect cross-compilation alone
+    /// could not have found; this expanded version, covering the
+    /// `decode_filter` read path added for `NL-165`, has not yet had its
+    /// own CI run — the author of this change has no Windows host locally
+    /// to verify it directly (only cross-compilation via `cargo
+    /// check`/`clippy --target x86_64-pc-windows-gnu`, which catches
+    /// type/signature mismatches but proves nothing about runtime
+    /// behavior).
     #[test]
     #[ignore]
     fn set_then_clear_firewall_policy_round_trips_through_the_engine() {

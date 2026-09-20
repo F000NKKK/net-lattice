@@ -718,13 +718,12 @@ mod tests {
     /// remote, IPv6 remote, a single port, a port range, and a bare
     /// protocol match with no port) in one policy, all on
     /// [`Direction::Outbound`] so `firewall_rules()`'s documented
-    /// direction-grouping caveat doesn't affect the equality check. This
-    /// has not been verified against a live kernel by the author of this
-    /// change (no `CAP_NET_ADMIN` was available in the environment it was
-    /// written in) — a passing run of this test, or an `nft list ruleset`
-    /// inspection while it is paused mid-run, is the outstanding
-    /// verification this crate's own `@.claude/rules/ci.md` requires
-    /// before this Task can be considered independently reviewed.
+    /// direction-grouping caveat doesn't affect the equality check. An
+    /// earlier, narrower version of this test (one rule: outbound UDP/53)
+    /// has passed on real Linux CI with `CAP_NET_ADMIN`; this expanded
+    /// version, covering the full `decode_rule` decoder added for `NL-165`,
+    /// has not yet had its own CI run — the author of this change has no
+    /// `CAP_NET_ADMIN` locally to verify it directly.
     #[test]
     #[ignore = "requires CAP_NET_ADMIN; run with `sudo -E cargo test -p net-lattice-backend-linux -- --ignored`"]
     fn set_then_clear_firewall_policy_round_trips_through_the_kernel() {
