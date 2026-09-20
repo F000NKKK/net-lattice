@@ -30,11 +30,10 @@ and a breaking change will require an explicit major version bump.
   stage: namespaces are not symmetric across Linux/Windows/macOS, and all
   three need their own architecture pass before implementation starts.
   Firewall (stage 0.22) was originally grouped with these but has since
-  shipped ahead of `1.0.0` — see the firewall entry under `[Unreleased]`
-  below (pending its own version) and `ARCHITECTURE.md`'s Incremental
-  Delivery Plan.
+  shipped ahead of `1.0.0` — see the `[0.22.0]` entry below and
+  `ARCHITECTURE.md`'s Incremental Delivery Plan.
 
-## [Unreleased]
+## [0.22.0] - 2026-09-20
 
 ### Added
 
