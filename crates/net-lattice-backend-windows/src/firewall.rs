@@ -751,6 +751,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ok_or_platform_error_maps_nonzero_status_to_an_error() {
+        assert!(ok_or_platform_error(0).is_ok());
+        assert!(matches!(
+            ok_or_platform_error(5),
+            Err(Error::Platform(PlatformErrorCode::Windows(5)))
+        ));
+    }
+
+    #[test]
+    fn ok_or_already_exists_tolerates_only_that_one_status() {
+        assert!(ok_or_already_exists(0).is_ok());
+        assert!(ok_or_already_exists(FWP_E_ALREADY_EXISTS.0 as u32).is_ok());
+        assert!(matches!(
+            ok_or_already_exists(5),
+            Err(Error::Platform(PlatformErrorCode::Windows(5)))
+        ));
+    }
+
+    #[test]
+    fn wfp_action_maps_verdict_to_the_matching_action_type() {
+        assert_eq!(wfp_action(Verdict::Allow).r#type, FWP_ACTION_PERMIT);
+        assert_eq!(wfp_action(Verdict::Deny).r#type, FWP_ACTION_BLOCK);
+    }
+
+    #[test]
+    fn layer_key_matches_direction_and_family() {
+        assert_eq!(
+            layer_key(Direction::Outbound, false),
+            FWPM_LAYER_ALE_AUTH_CONNECT_V4
+        );
+        assert_eq!(
+            layer_key(Direction::Outbound, true),
+            FWPM_LAYER_ALE_AUTH_CONNECT_V6
+        );
+        assert_eq!(
+            layer_key(Direction::Inbound, false),
+            FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4
+        );
+        assert_eq!(
+            layer_key(Direction::Inbound, true),
+            FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6
+        );
+    }
+
+    #[test]
     fn rule_weight_decreases_with_index_and_never_reaches_zero() {
         assert_eq!(rule_weight(0, 3), 3);
         assert_eq!(rule_weight(1, 3), 2);
