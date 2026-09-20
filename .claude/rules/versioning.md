@@ -5,18 +5,15 @@
   YouTrack `Sprint` custom field and the crate's SemVer minor version march
   together pre-1.0 — do not invent a different mapping when filing or
   scoping issues.
-- Net Lattice is pre-1.0 (`ARCHITECTURE.md`'s roadmap gates 1.0 behind the
-  Stage 0.21 compatibility audit). Before 1.0, a Sprint's release is allowed
-  to change the public API meaningfully — add, remove, or reshape public
-  types/traits/methods — as normal roadmap evolution, provided the change is
-  recorded in an ADR (see `@.claude/rules/youtrack.md`'s ADR section) and in
-  `CHANGELOG.md`. Do not treat a pre-1.0 minor bump as a compatibility
-  guarantee, and do not block a design on preserving a pre-1.0 import path
-  or type shape purely for compatibility's sake — `ARCHITECTURE.md`'s own
-  opening note already states it "reflects intended direction, not current
-  state." An ADR may still choose to preserve something pre-1.0 for other
-  reasons (ergonomics, avoiding needless churn); the point is that
-  compatibility alone is not a blocking constraint before 1.0.
+- Net Lattice's Stage 0.21 compatibility audit (`ARCHITECTURE.md`'s roadmap
+  gate for 1.0) is complete — the public-API freeze, `Addition` tier
+  (ADR-0014), `Error` `#[non_exhaustive]` (ADR-0015), and full rustdoc
+  coverage are all done. The path to `1.0.0` is closed; publication is a
+  user-invoked release-script action, not further roadmap work. Before this
+  point, a Sprint's release was allowed to change the public API
+  meaningfully as normal roadmap evolution, provided the change was recorded
+  in an ADR (see `@.claude/rules/youtrack.md`'s ADR section) and in
+  `CHANGELOG.md`; a pre-1.0 minor bump was never a compatibility guarantee.
 - Once a crate reaches `1.0.0`, this changes: within one major version
   (`1.x`, `2.x`, ...), the public API must not change in a breaking way —
   ordinary SemVer discipline applies (new public items are additive minor
