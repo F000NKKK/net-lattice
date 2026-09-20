@@ -105,7 +105,8 @@ Implemented:
   computed against a `CurrentState`, a pure compiled `ApplyPlan`, and
   `Lattice::apply()`/`execute_apply_plan()` to run it against a backend
 - Native-firewall policy management (`FirewallProvider`/`FirewallMutator`),
-  on Linux (nftables), Windows (WFP), and macOS (`pf`)
+  on Linux (nftables), Windows (WFP), and macOS (`pf`), integrated with
+  `Mutation`, `DesiredState`, `Diff`, and `ApplyPlan`
 
 Planned:
 

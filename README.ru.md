@@ -17,13 +17,15 @@
 
 **Net Lattice** — это современная кроссплатформенная библиотека для Rust, предназначенная для настройки и анализа сетевой конфигурации операционной системы через единый строго типизированный API.
 
-> **Статус:** Net Lattice предоставляет кроссплатформенный просмотр сети,
-> изменение маршрутов, адресов, DNS, administrative state и MTU интерфейсов,
-> а также статических записей ARP/NDP, inspectable планы mutation-операций и
-> упорядоченное исполнение транзакций с cancellation, snapshots, compensation
-> и фазовыми отчётами, а также согласованными снапшотами `CurrentState` для
-> всей системы через нативные API Linux, Windows и macOS. Полный список
-> возможностей — в разделе «Текущий статус» ниже.
+> **Статус:** `1.0` — текущая стабильная линия. Net Lattice предоставляет
+> кроссплатформенный просмотр сети, изменение маршрутов, адресов, DNS,
+> administrative state и MTU интерфейсов, статических записей ARP/NDP и
+> native-firewall, inspectable планы mutation-операций и упорядоченное
+> исполнение транзакций с cancellation, snapshots, compensation и фазовыми
+> отчётами, декларативные desired-state/diff/apply, а также согласованными
+> снапшотами `CurrentState` для всей системы через нативные API Linux,
+> Windows и macOS. Полный список возможностей — в разделе «Текущий статус»
+> ниже.
 
 ## Обзор
 
@@ -106,7 +108,8 @@ Net Lattice призвана закрыть этот пробел, предос�
   `ApplyPlan` и `Lattice::apply()`/`execute_apply_plan()` для его исполнения
   на подключённом backend'е
 - Управление native-firewall policy (`FirewallProvider`/`FirewallMutator`)
-  на Linux (nftables), Windows (WFP) и macOS (`pf`)
+  на Linux (nftables), Windows (WFP) и macOS (`pf`), интегрировано с
+  `Mutation`, `DesiredState`, `Diff` и `ApplyPlan`
 
 Запланировано:
 
@@ -144,9 +147,9 @@ Net Lattice также предоставляет декларативную м�
 `Diff::compute(&CurrentState, &DesiredState) -> Diff`
 (`net_lattice::mutation::Diff`) вычисляет чистую, side-effect-free разницу
 между ними: маршруты, соседи и адреса — как naturally-keyed множества
-add/remove(/change), интерфейс — как patch-diff по полям, DNS — как
-сравнение целого значения. `Diff::compute` не выполняет I/O и не вызывает ни
-один provider/backend метод. `ApplyPlan::compile(&Diff) -> ApplyPlan`
+add/remove(/change), интерфейс — как patch-diff по полям, DNS и firewall
+policy — как сравнение целого значения. `Diff::compute` не выполняет I/O и
+не вызывает ни один provider/backend метод. `ApplyPlan::compile(&Diff) -> ApplyPlan`
 (`net_lattice::mutation::ApplyPlan`) точно так же чистая и side-effect-free
 функция, компилирующая diff в упорядоченный список `ApplyStep` (см. раздел
 State Model в [архитектуре](ARCHITECTURE.ru.md) о том, как парная
@@ -161,8 +164,8 @@ read-after-write верификацией, а тонкое удобство
 скомпилированный план заранее. Рабочий пример только для чтения —
 `declarative_diff`; полный пример применения — `declarative_apply`.
 
-Следующая поверхность API, описанная в плане поэтапной поставки
-[архитектуры](ARCHITECTURE.ru.md), проверена privileged CI-задачами:
+Следующая поверхность — замороженный публичный API версии 1.0, описанный в
+[архитектуре](ARCHITECTURE.ru.md) — проверена privileged CI-задачами:
 
 - `net-lattice-core`, `net-lattice-ip`
 - модули `route`, `mac`, `interface`, `dns`, `neighbor`, `ifaddr`, `event` и `mutation` в `net-lattice-model`; `NewInterfaceAddress`, `NewDnsConfig` и `StaticNeighbor` выражают намерение изменения отдельно от наблюдаемого состояния
@@ -292,32 +295,26 @@ if lattice.supports(Capability::ROUTE_MONITORING) {
 
 ## Дорожная карта
 
-Текущий набор возможностей описан выше, в разделах «Возможности» и «Текущий
-статус»; список ниже — это план дальнейшей поставки, последовательный обзор,
-а не журнал статусов:
+`1.0` — текущая стабильная линия: полная кроссплатформенная поддержка
+inspection, monitoring, imperative mutation, упорядоченных транзакций,
+декларативного apply и управления native-firewall policy (imperative и
+транзакционное), каждая с privileged regression coverage на Linux, Windows и
+macOS. Датированную историю того, как это появилось, см. в
+[CHANGELOG.md](CHANGELOG.md), а замороженную публичную поверхность API — в
+[ARCHITECTURE.ru.md](ARCHITECTURE.ru.md).
 
-1. **Bootstrap** — инфраструктура репозитория, лицензирование, файлы для сообщества и настройка инструментов.
-2. **Проектирование** — структура крейтов, базовые абстракции и стратегия абстрагирования платформ. См. [ARCHITECTURE.ru.md](ARCHITECTURE.ru.md).
-3. **Фундамент** — базовые типы IP/маршрутов/интерфейсов и все три платформенных бэкенда.
-4. **Паритет платформ** — Linux/Windows/macOS backend'ы для изменения маршрутов и адресов, интерфейсов, чтения DNS, чтения соседей, чтения адресов и мониторинга.
-5. **Stage 0.9: Изменение адресов** — кроссплатформенное назначение и удаление IPv4/IPv6-адресов интерфейсов.
-6. **Stage 0.10: Семантика событий** — bounded delivery, сигнализация overflow и resynchronization, filtering, cancellation и распространение ошибок.
-7. **Stage 0.11: Async events** — опциональная feature фасада `async`, единый runtime-agnostic `EventStream` и нативная Tokio-backed доставка в каждом платформенном backend.
-8. **Stage 0.12: Стабилизация API watcher'ов** — composable filters по объектам/доменам, filtering до помещения в очередь, validation capability мониторинга и одинаковая семантика filter для sync/async watcher'ов.
-9. **Stage 0.13: Изменение DNS** — замена конфигурации резолвера через поддерживаемые системные механизмы, закрытая capability, на Linux, Windows и macOS.
-10. **Stage 0.14: Модель mutation-операций** — inspectable значения `Mutation` и планы `MutationPlan` только из данных для изменений routes, addresses и DNS; явно определены preconditions, idempotency, privileges, confirmation, partial application и reversibility.
-11. **Stage 0.15: Исполнение транзакций** — упорядоченные планы, результаты каждой операции, диагностика фаз и длительностей, границы cancellation и ошибок, а также compensation для документированно reversible операций.
-12. **Stage 0.16: Конфигурация интерфейсов** — отдельная desired-конфигурация интерфейса, capability-gated изменение admin state и MTU, read-after-write результаты и platform-parity tests.
-13. **Stage 0.17: Изменение соседей, паритет IPv6 для DNS и изолированная topology-приёмка** — intent/observed управление статическими ARP/NDP (`NeighborMutator`, ADR-0001), разделение `RouteProvider`/`RouteMutator` (ADR-0002), паритет IPv6 для DNS и безопасное кроссплатформенное тестирование деструктивных операций, проверено на privileged CI Linux, Windows и macOS.
-14. **Stage 0.18: Snapshots** — последовательно собранный `CurrentState` с явно определёнными scope, consistency и partial-read семантиками.
-15. **Stage 0.19: Декларативный diff** — отдельные конфигурационные типы `DesiredState` и inspectable `Diff` без mutation.
-16. **Stage 0.20: Декларативное применение** — компиляция `Diff` в `ApplyPlan` и его исполнение через transaction engine.
-17. **Stage 0.21: Pre-1.0 hardening** — завершена. Публичные контракты, правила identity и capability, гарантии событий, матрица платформ и privileged regression coverage заморожены; см. аудит заморозки публичного API в [ARCHITECTURE.ru.md](ARCHITECTURE.ru.md).
-18. **Stage 0.22: Firewall** — готово. `FirewallProvider`/`FirewallMutator` (ADR-0017) реализованы на Linux (nftables), Windows (WFP) и macOS (`pf`), каждый проверен прохождением привилегированного нативного round-trip теста на своём CI-раннере.
-19. **Stage 2.0+: Оставшиеся домены Capability** — VLAN, VRF и namespaces, каждый с полным контрактом read/intent/mutation/event/capability/tests. Отложены в линию после 1.0, а не в pre-1.0 стадию: ни один не является prerequisite для 1.0, и каждый достаточно велик, чтобы заслуживать отдельного архитектурного прохода в рамках своей major-линии. Управление tunnel-интерфейсами вне зоны ответственности этого репозитория; см. [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice) в таблице экосистемы выше.
-20. **1.0** — стабильная основа для контрактов inspection, monitoring, imperative mutation, transactions и declarative apply. Compatibility audit стадии 0.21, который её закрывает, завершён; первый стабильный релиз `1.0.0` готов к публикации.
+Запланировано на 2.0+ — каждый пункт достаточно велик, чтобы требовать
+отдельного архитектурного прохода, ни один не является prerequisite для 1.0:
 
-Этапы — это границы поставки, а не обещание одного релиза на каждый заголовок: platform validation может разделить этап, а focused hardening-релизы могут появляться между этапами. О том, что реально вышло в каждом датированном релизе, см. [CHANGELOG.md](CHANGELOG.md).
+| Домен | Содержание |
+|---|---|
+| VLAN | модель read/intent/mutation для tagged-интерфейсов, единая для всех трёх backend'ов |
+| VRF | модель изоляции таблиц маршрутизации и привязка по backend'ам |
+| Namespaces | изоляция process/network namespace — асимметрична между Linux/Windows/macOS, требует отдельного архитектурного прохода до начала реализации |
+
+Управление tunnel-интерфейсами полностью вне зоны ответственности этого
+репозитория; см. [tunnel-lattice](https://github.com/F000NKKK/tunnel-lattice)
+в таблице экосистемы выше.
 
 ## Участие в проекте
 
