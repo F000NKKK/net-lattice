@@ -225,24 +225,27 @@ fn compute_routes(current: &[Route], desired: Option<&[RouteConfig]>) -> Vec<Rou
 
     let current_keys: std::collections::HashSet<RouteKey> =
         current.iter().map(RouteKey::from_route).collect();
-    // Last-one-wins for duplicate keys within `desired`.
-    let desired_map: HashMap<RouteKey, RouteConfig> = desired
-        .iter()
-        .map(|config| (RouteKey::from_config(config), *config))
-        .collect();
+    // Last-one-wins for duplicate keys within `desired`: track each key's
+    // final occurrence index rather than comparing values, since two
+    // duplicate entries can be value-equal (route's natural key is its
+    // whole value), which would otherwise make every duplicate look like
+    // "the last one".
+    let mut last_index: HashMap<RouteKey, usize> = HashMap::new();
+    for (index, config) in desired.iter().enumerate() {
+        last_index.insert(RouteKey::from_config(config), index);
+    }
 
     let mut changes = Vec::new();
     for route in current {
-        if !desired_map.contains_key(&RouteKey::from_route(route)) {
+        if !last_index.contains_key(&RouteKey::from_route(route)) {
             changes.push(RouteChange::Removed(route.clone()));
         }
     }
-    // Preserve caller order for deterministic diffs. The map above still
-    // implements last-one-wins for duplicate keys; only the final occurrence
-    // of each key is emitted.
-    for config in desired {
+    // Preserve caller order for deterministic diffs; only the final
+    // occurrence of each key is emitted.
+    for (index, config) in desired.iter().enumerate() {
         let key = RouteKey::from_config(config);
-        if desired_map.get(&key) == Some(config) && !current_keys.contains(&key) {
+        if last_index.get(&key) == Some(&index) && !current_keys.contains(&key) {
             changes.push(RouteChange::Added(*config));
         }
     }
@@ -285,19 +288,20 @@ fn compute_interfaces(
         return Vec::new();
     };
 
-    // Last-one-wins for duplicate InterfaceId within `desired`.
-    let mut desired_map: HashMap<InterfaceId, &crate::interface::InterfaceConfig> = HashMap::new();
-    for config in desired {
-        desired_map.insert(config.interface_id(), config);
+    // Last-one-wins for duplicate InterfaceId within `desired`: track each
+    // ID's final occurrence index rather than comparing values, since two
+    // duplicate entries can be value-equal.
+    let mut last_index: HashMap<InterfaceId, usize> = HashMap::new();
+    for (index, config) in desired.iter().enumerate() {
+        last_index.insert(config.interface_id(), index);
     }
 
     let mut diffs = Vec::new();
-    for config in desired {
+    for (index, config) in desired.iter().enumerate() {
         let interface_id = config.interface_id();
-        // The map implements last-one-wins for duplicate IDs. Skip earlier
-        // duplicates while retaining the caller's ordering for the surviving
-        // entries.
-        if desired_map.get(&interface_id).copied() != Some(config) {
+        // Skip earlier duplicates while retaining the caller's ordering for
+        // the surviving entries.
+        if last_index.get(&interface_id) != Some(&index) {
             continue;
         }
 
@@ -371,14 +375,14 @@ fn compute_neighbors(
     };
 
     let mut desired_map: HashMap<NeighborKey, StaticNeighbor> = HashMap::new();
-    for neighbor in desired {
-        desired_map.insert(
-            NeighborKey {
-                interface_id: neighbor.interface_id,
-                address: neighbor.address,
-            },
-            *neighbor,
-        );
+    let mut last_index: HashMap<NeighborKey, usize> = HashMap::new();
+    for (index, neighbor) in desired.iter().enumerate() {
+        let key = NeighborKey {
+            interface_id: neighbor.interface_id,
+            address: neighbor.address,
+        };
+        desired_map.insert(key, *neighbor);
+        last_index.insert(key, index);
     }
 
     let mut changes = Vec::new();
@@ -401,14 +405,15 @@ fn compute_neighbors(
             None => changes.push(NeighborChange::Removed(entry.clone())),
         }
     }
-    // Preserve desired input order while retaining last-one-wins
-    // duplicate semantics from desired_map.
-    for neighbor in desired {
+    // Preserve desired input order; only the final occurrence of each key
+    // (tracked by index, not value, since duplicates can be value-equal) is
+    // emitted.
+    for (index, neighbor) in desired.iter().enumerate() {
         let key = NeighborKey {
             interface_id: neighbor.interface_id,
             address: neighbor.address,
         };
-        if desired_map.get(&key) == Some(neighbor) && !matched.contains(&key) {
+        if last_index.get(&key) == Some(&index) && !matched.contains(&key) {
             changes.push(NeighborChange::Added(*neighbor));
         }
     }
@@ -424,14 +429,14 @@ fn compute_addresses(
     };
 
     let mut desired_map: HashMap<AddressKey, NewInterfaceAddress> = HashMap::new();
-    for address in desired {
-        desired_map.insert(
-            AddressKey {
-                interface_id: address.interface_id,
-                address: address.address,
-            },
-            address.clone(),
-        );
+    let mut last_index: HashMap<AddressKey, usize> = HashMap::new();
+    for (index, address) in desired.iter().enumerate() {
+        let key = AddressKey {
+            interface_id: address.interface_id,
+            address: address.address,
+        };
+        desired_map.insert(key, address.clone());
+        last_index.insert(key, index);
     }
 
     let mut changes = Vec::new();
@@ -461,14 +466,15 @@ fn compute_addresses(
             None => changes.push(AddressChange::Removed(observed.clone())),
         }
     }
-    // Preserve desired input order while retaining last-one-wins
-    // duplicate semantics from desired_map.
-    for address in desired {
+    // Preserve desired input order; only the final occurrence of each key
+    // (tracked by index, not value, since duplicates can be value-equal) is
+    // emitted.
+    for (index, address) in desired.iter().enumerate() {
         let key = AddressKey {
             interface_id: address.interface_id,
             address: address.address,
         };
-        if desired_map.get(&key) == Some(address) && !matched.contains(&key) {
+        if last_index.get(&key) == Some(&index) && !matched.contains(&key) {
             changes.push(AddressChange::Added(address.clone()));
         }
     }
