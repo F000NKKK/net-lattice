@@ -71,14 +71,11 @@ managed object per platform (an nftables table on Linux, a WFP provider's
 own filters on Windows, a `pf` anchor on macOS) and never reads or writes
 firewall state configured by other tools; a report that this scoping can be
 bypassed, or that a `FirewallRule` compiles to a nftables/WFP/`pf` match
-different from what it describes, is in scope. The macOS firewall backend's
-raw `ioctl` structs (`net-lattice-backend-darwin`'s `firewall` module) are
-transcribed field-for-field from Apple's own published XNU kernel source
-(no safe Rust wrapper exists for `pf`, and Apple does not ship the
-kernel-private `net/pfvar.h` header in the public SDK) — a struct-layout
-mismatch there is a memory-safety class of bug (an `ioctl()` call copying
-the wrong number of bytes), not merely an incorrect-rule-match bug, so
-reports in this specific area are especially welcome. Reports involving unintended
+different from what it describes, is in scope. `net-lattice-backend-darwin`'s
+`firewall` module builds raw `ioctl` structs by hand (see its own doc
+comment for why); a struct-layout mismatch there is a memory-safety bug,
+not just an incorrect-match bug, so reports in that specific area are
+especially welcome. Reports involving unintended
 network mutation, partial DNS application, privilege confusion, or
 memory-safety issues in route, interface, DNS, neighbor, address, firewall,
 or monitoring message/data handling are in scope. VLAN, VRF, namespace, and

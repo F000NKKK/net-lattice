@@ -12,10 +12,8 @@ native ioctls. It implements the generic `net-lattice-platform` contracts.
   `SIOCSIFMTU`, with fresh observed-interface readback;
 - routing-socket monitoring and optional async delivery;
 - native-firewall (`pf`) policy management (`FirewallMutator`,
-  `Capability::FIREWALL_MUTATION`) — one managed `pf` anchor (`net_lattice`),
-  replaced atomically via `pf`'s own transaction ticket mechanism;
-  `FirewallProvider::firewall_rules` reads live from the kernel, not a
-  cache;
+  `Capability::FIREWALL_MUTATION`), atomically replacing one managed `pf`
+  anchor (`net_lattice`);
 - preservation of native error codes in the shared error model.
 
 Applications should normally use the `net-lattice` facade, which selects this
@@ -26,12 +24,8 @@ via `Lattice::firewall_rules`/`set_firewall_policy`/`clear_firewall_policy`.
 ## Build requirements
 
 Firewall management uses raw `ioctl` calls on `/dev/pf` — no build-time
-system package is required, but see this crate's `firewall` module
-documentation for the real risk profile of this approach: there is no safe
-Rust wrapper for `pf`, and Apple does not ship the kernel-private
-`net/pfvar.h` header in the public SDK, so the ioctl structs are transcribed
-field-for-field from Apple's own published XNU source rather than a
-mismatched modern OpenBSD header.
+system package is required. See the `firewall` module's own documentation
+for the risk profile of that approach.
 
 ## Direct usage
 

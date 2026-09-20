@@ -13,10 +13,8 @@ generic `net-lattice-platform` contracts through native Windows APIs.
 - native route, interface, and unicast-address notifications with optional
   async delivery;
 - native-firewall (WFP) policy management (`FirewallMutator`,
-  `Capability::FIREWALL_MUTATION`) — filters added across the four
-  IPv4/IPv6 ALE layers, atomically replacing this crate's own managed
-  filter set; `FirewallProvider::firewall_rules` reads live from the
-  engine, not a cache;
+  `Capability::FIREWALL_MUTATION`), atomically replacing this crate's own
+  managed filter set across the four IPv4/IPv6 ALE layers;
 - preservation of Windows error codes in the shared error model.
 
 Applications should normally use the `net-lattice` facade, which selects this
