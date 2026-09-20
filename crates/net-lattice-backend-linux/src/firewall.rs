@@ -675,6 +675,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn chain_policy_and_nft_verdict_map_allow_and_deny() {
+        assert_eq!(chain_policy(Verdict::Allow), ChainPolicy::Accept);
+        assert_eq!(chain_policy(Verdict::Deny), ChainPolicy::Drop);
+        assert_eq!(nft_verdict(Verdict::Allow), NftVerdict::Accept);
+        assert_eq!(nft_verdict(Verdict::Deny), NftVerdict::Drop);
+    }
+
+    #[test]
+    fn chain_name_matches_direction() {
+        assert_eq!(chain_name(Direction::Inbound), INBOUND_CHAIN_NAME);
+        assert_eq!(chain_name(Direction::Outbound), OUTBOUND_CHAIN_NAME);
+    }
+
+    #[test]
+    fn mnl_error_code_preserves_the_raw_errno() {
+        let err = io::Error::from_raw_os_error(13);
+        assert_eq!(mnl_error_code(&err), PlatformErrorCode::Linux(13));
+    }
+
+    #[test]
     fn ipv6_prefix_mask_covers_leading_bits_only() {
         assert_eq!(ipv6_prefix_mask(0), [0u8; 16]);
         assert_eq!(ipv6_prefix_mask(128), [0xffu8; 16]);
