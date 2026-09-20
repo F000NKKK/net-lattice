@@ -21,6 +21,9 @@ pub mod diff;
 pub mod dns;
 /// Change-notification event types and filtering.
 pub mod event;
+/// Native-firewall rule and policy types (kill-switch-oriented, no NAT or
+/// connection tracking).
+pub mod firewall;
 /// Observed interface-address (IP address on interface) state.
 pub mod ifaddr;
 /// Observed and desired network interface state.
@@ -42,6 +45,7 @@ pub use diff::{
 };
 pub use dns::{DnsConfig, NewDnsConfig};
 pub use event::{ChangeKind, Event, EventDomain, EventFilter};
+pub use firewall::{Direction, FirewallPolicy, FirewallRule, PortRange, Protocol, Verdict};
 pub use ifaddr::{InterfaceAddress, InterfaceAddressId, NewInterfaceAddress};
 pub use interface::{
     AdminState, DesiredAdminState, Interface, InterfaceConfig, InterfaceId, InterfaceKind,

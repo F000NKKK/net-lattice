@@ -63,6 +63,13 @@ bitflags::bitflags! {
         /// This is a feature gate, not proof that the current process has the
         /// privilege or policy permission to change a route.
         const ROUTE_MUTATION = 1 << 11;
+        /// The backend can replace its managed native-firewall policy
+        /// through a supported operating-system mechanism (Linux nftables,
+        /// Windows WFP, macOS pf).
+        ///
+        /// This is a feature gate, not proof that the current process has the
+        /// privilege or policy permission to change firewall state.
+        const FIREWALL_MUTATION = 1 << 12;
         /// Every currently modeled event domain is deliverable by the
         /// backend. This is the capability required by an all-domain
         /// [`EventProvider::watch`](crate::EventProvider::watch) request.
