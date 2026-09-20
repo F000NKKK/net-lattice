@@ -31,9 +31,9 @@ the feature-gated async facade. Monitoring capabilities are domain-specific:
 the aggregate `MONITORING` bit means a native delivery path exists for every
 currently modeled domain, while filtered watches require their selected
 route/interface/neighbor/address bit. Windows has no native neighbor-change
-callback and therefore rejects neighbor and all-domain subscriptions. See the
-Incremental Delivery Plan table below for the full stage list and
-[CHANGELOG.md](CHANGELOG.md)/[README.md](README.md) for per-release detail.
+callback and therefore rejects neighbor and all-domain subscriptions. See
+"Frozen 1.0 Public API Surface" below for the full audited inventory and
+[CHANGELOG.md](CHANGELOG.md) for per-release detail.
 
 ## Guiding Principle
 
