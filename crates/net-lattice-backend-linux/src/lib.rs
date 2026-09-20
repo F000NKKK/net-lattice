@@ -2197,12 +2197,7 @@ mod tests {
             let index = backend
                 .runtime
                 .block_on(async {
-                    let mut links = backend
-                        .handle
-                        .link()
-                        .get()
-                        .match_name(name.into())
-                        .execute();
+                    let mut links = backend.handle.link().get().match_name(name).execute();
                     links.try_next().await.ok().flatten()
                 })
                 .map(|link| link.header.index)
