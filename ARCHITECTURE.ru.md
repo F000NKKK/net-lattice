@@ -794,7 +794,7 @@ Stages 0.15–0.20 построили transactions и declarative apply пове
 - `Result<T>` (псевдоним уровня крейта для `core::result::Result<T, Error>`).
 
 Примечание: `Error` был помечен атрибутом `#[non_exhaustive]` перед
-заморозкой 1.0 (ADR-0015/`NL-A-17`), что привело его в соответствие с
+заморозкой 1.0 (ADR-0015), что привело его в соответствие с
 почти каждым другим enum в `net-lattice-model`/`net-lattice-platform`.
 `PlatformErrorCode` намеренно оставлен без этого атрибута: его три
 варианта (`Linux`, `Windows`, `Darwin`) закрыты по построению — четвёртая
@@ -813,7 +813,7 @@ Stages 0.15–0.20 построили transactions и declarative apply пове
 - **Домен адресов интерфейса** (`ifaddr`): `InterfaceAddress`,
   `InterfaceAddressId` (`= Id<InterfaceAddress>`), `NewInterfaceAddress`.
 - **Домен DNS** (`dns`): `DnsConfig`, `NewDnsConfig`.
-- **Домен firewall** (`firewall`, добавлен в стадии 0.22, ADR-0017/`NL-A-19`):
+- **Домен firewall** (`firewall`, добавлен в стадии 0.22, ADR-0017):
   `FirewallRule`, `FirewallPolicy`, `Direction`, `Protocol`, `PortRange`,
   `Verdict`. В отличие от разделения observed/desired, используемого всеми
   остальными изменяемыми доменами выше, `FirewallRule`/`FirewallPolicy`
@@ -857,7 +857,7 @@ Stages 0.15–0.20 построили transactions и declarative apply пове
   `DnsProvider`/`DnsMutator`, `FirewallProvider`/`FirewallMutator`
   (`FirewallMutator::set_firewall_policy` атомарно заменяет всю managed
   policy целиком, в отличие от инкрементального add/remove у
-  `RouteMutator` — см. ADR-0017/`NL-A-19`).
+  `RouteMutator` — см. ADR-0017).
 - `RouteMutator::add_route`, `RouteMutator::remove_route` — два метода
   мутации, зависящих от `Capability`.
 - **`RouteMutator::supports_route_metric`** и
@@ -960,7 +960,7 @@ doc-комментарий `Capability` в поисках "что backend объ
   реализации не потребовалось изменение кода, чтобы продолжить
   компилироваться. `FirewallMutator` (который требует `FirewallProvider`
   как собственный supertrait) был добавлен на этапе 0.22
-  (ADR-0017/`NL-A-19`) — в отличие от `AdditionProvider`, это **является**
+  (ADR-0017) — в отличие от `AdditionProvider`, это **является**
   breaking-добавлением для любого стороннего backend'а, созданного до
   этапа 0.22, поскольку ни один из этих traits не имеет реализации по
   умолчанию; существующий сторонний backend должен реализовать оба, чтобы
@@ -985,7 +985,7 @@ doc-комментарий `Capability` в поисках "что backend объ
 "Факты, объявляемые backend'ом не через `Capability`" выше (заморожены с
 той же дисциплиной, что и `Capability` — изменение формы не требуется) и
 вопрос о `#[non_exhaustive]`-статусе `Error`/`PlatformErrorCode`, решённый
-в ADR-0015/`NL-A-17` (`Error` получил `#[non_exhaustive]`; `PlatformErrorCode`
+в ADR-0015 (`Error` получил `#[non_exhaustive]`; `PlatformErrorCode`
 — намеренно нет).
 
 ## Матрица поддержки платформ и пробелы
@@ -1252,7 +1252,7 @@ Lattice нигде в пути событий не даёт гарантии exa
 | 0.19 | Декларативная модель и diff: конфигурационные типы `DesiredState` остаются отдельными от наблюдаемых типов; создаётся inspectable `Diff` без его применения. |
 | 0.20 | Декларативное применение: `Diff` компилируется в `ApplyPlan`, исполняется через transaction engine и сообщает о convergence, non-convergence и результатах compensation. |
 | 0.21 | Pre-1.0 hardening: заморозка core model, provider extension contracts, правил identity, значений capability, гарантий событий и матрицы поддержки платформ; завершение cross-platform privileged regression coverage и migration guidance. Завершено — см. «Замороженная публичная поверхность API версии 1.0» ниже. |
-| 0.22 | Firewall: модель `FirewallRule`/`FirewallPolicy`, платформенный контракт `FirewallProvider`/`FirewallMutator` и нативные backend'ы на Linux (nftables через `nftnl`), Windows (WFP) и macOS (`pf` через сырой ioctl `/dev/pf`) — каждый подтверждён прохождением привилегированного нативного round-trip теста на своём CI-раннере. См. ADR-0017 (`NL-A-19`). Завершено. |
+| 0.22 | Firewall: модель `FirewallRule`/`FirewallPolicy`, платформенный контракт `FirewallProvider`/`FirewallMutator` и нативные backend'ы на Linux (nftables через `nftnl`), Windows (WFP) и macOS (`pf` через сырой ioctl `/dev/pf`) — каждый подтверждён прохождением привилегированного нативного round-trip теста на своём CI-раннере. См. ADR-0017. Завершено. |
 | 1.0 | Стабильная кроссплатформенная основа для реализованных контрактов inspection, monitoring, imperative mutation, transactions, declarative apply и firewall. Закрывается compatibility audit из 0.21, а не реализацией всех будущих capability-доменов — этот аудит завершён, и 1.0 готова к первому стабильному релизу. |
 | 2.0+ | Оставшиеся домены Capability, каждый вводится только вместе со своей read model, intent model, семантикой mutation, событиями там, где их поддерживает ОС, capabilities и all-platform tests: VLAN, VRF и namespaces. Отложены в линию после 1.0, а не в pre-1.0 стадию, поскольку ни один из них не является prerequisite для 1.0, и каждый достаточно велик, чтобы заслуживать отдельного архитектурного прохода в рамках своей major-линии. Управление tunnel-интерфейсами вне зоны ответственности этого репозитория (см. крейт экосистемы `tunnel-lattice`). |
 

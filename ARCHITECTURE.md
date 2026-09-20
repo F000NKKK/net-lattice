@@ -771,7 +771,7 @@ in the workspace.
 - `Result<T>` (crate-level alias for `core::result::Result<T, Error>`).
 
 Note: `Error` was marked `#[non_exhaustive]` ahead of the 1.0 freeze
-(ADR-0015/`NL-A-17`), bringing it into line with almost every other enum in
+(ADR-0015), bringing it into line with almost every other enum in
 `net-lattice-model`/`net-lattice-platform`. `PlatformErrorCode` was
 deliberately left out of that decision: its three variants (`Linux`,
 `Windows`, `Darwin`) are closed by construction — a fourth OS platform is
@@ -790,14 +790,11 @@ not a realistic addition in the workspace's current roadmap, unlike
 - **Interface-address domain** (`ifaddr`): `InterfaceAddress`,
   `InterfaceAddressId` (`= Id<InterfaceAddress>`), `NewInterfaceAddress`.
 - **DNS domain** (`dns`): `DnsConfig`, `NewDnsConfig`.
-- **Firewall domain** (`firewall`, added stage 0.22, ADR-0017/`NL-A-19`):
-  `FirewallRule`, `FirewallPolicy`, `Direction`, `Protocol`, `PortRange`,
-  `Verdict`. Unlike the observed/desired split every other mutable domain
-  above uses, `FirewallRule`/`FirewallPolicy` serve both the read
-  (`FirewallProvider::firewall_rules`) and write
-  (`FirewallMutator::set_firewall_policy`) side — a native-firewall rule
-  carries no backend-synthesized identity that desired intent would need to
-  omit, unlike a route, address, or neighbor entry.
+- **Firewall domain** (`firewall`, ADR-0017): `FirewallRule`,
+  `FirewallPolicy`, `Direction`, `Protocol`, `PortRange`, `Verdict`. Unlike
+  every other mutable domain above, one type serves both the read and
+  write side — a native-firewall rule carries no backend-synthesized
+  identity to keep out of desired intent.
 - **MAC address** (`mac`): `MacAddress`.
 - **Address helpers** (`address`): `IpAddress`, `Network`.
 - **Snapshot** (`snapshot`): `CurrentState`.
@@ -831,7 +828,7 @@ under `net-lattice-core` above) and `RouteReplaceOrder`, which is defined in
   `DnsProvider`/`DnsMutator`, `FirewallProvider`/`FirewallMutator`
   (`FirewallMutator::set_firewall_policy` replaces the whole managed policy
   atomically, unlike `RouteMutator`'s incremental add/remove — see
-  ADR-0017/`NL-A-19`).
+  ADR-0017).
 - `RouteMutator::add_route`, `RouteMutator::remove_route` — the two
   `Capability`-gated mutation methods.
 - **`RouteMutator::supports_route_metric`** and
@@ -927,7 +924,7 @@ a backend declare about itself" will miss these two methods.
   existing and third-party backend because both of its methods are
   default-provided, so no existing implementation needed a code change to
   keep compiling. `FirewallMutator` (which requires `FirewallProvider` as
-  its own supertrait) was added in stage 0.22 (ADR-0017/`NL-A-19`) — unlike
+  its own supertrait) was added in stage 0.22 (ADR-0017) — unlike
   `AdditionProvider`, this **is** a breaking addition for any third-party
   backend that predates stage 0.22, since neither trait has a
   default-provided implementation; a pre-existing third-party backend must
@@ -949,7 +946,7 @@ freeze audit; it does not itself change any type's shape or attribute. It
 surfaced two follow-up questions, both now resolved: the "Non-`Capability`
 backend-declared facts" callout above (frozen with the same discipline as
 `Capability` — no shape change needed), and the `Error`/`PlatformErrorCode`
-non-exhaustiveness question, decided by ADR-0015/`NL-A-17` (`Error` gained
+non-exhaustiveness question, decided by ADR-0015 (`Error` gained
 `#[non_exhaustive]`; `PlatformErrorCode` deliberately did not).
 
 ## Platform Support Matrix and Gaps
