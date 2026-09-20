@@ -864,6 +864,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pf_action_and_pf_direction_map_verdict_and_direction() {
+        assert_eq!(pf_action(Verdict::Allow), pfvar::PF_PASS);
+        assert_eq!(pf_action(Verdict::Deny), pfvar::PF_DROP);
+        assert_eq!(pf_direction(Direction::Inbound), pfvar::PF_IN);
+        assert_eq!(pf_direction(Direction::Outbound), pfvar::PF_OUT);
+    }
+
+    #[test]
+    fn address_family_reflects_remote_presence_and_kind() {
+        use net_lattice_ip::{Ipv4Address, Ipv4Network, Ipv4PrefixLength};
+
+        assert_eq!(address_family(None), libc::AF_UNSPEC as u8);
+        let v4 = Network::V4(Ipv4Network::new(
+            Ipv4Address::new(10, 0, 0, 0),
+            Ipv4PrefixLength::new(8).unwrap(),
+        ));
+        assert_eq!(address_family(Some(&v4)), libc::AF_INET as u8);
+    }
+
+    #[test]
+    fn anchor_bytes_is_null_terminated_and_matches_the_anchor_name() {
+        let bytes = anchor_bytes();
+        assert_eq!(&bytes[..ANCHOR.len()], ANCHOR);
+        assert_eq!(bytes[ANCHOR.len()], 0);
+    }
+
+    #[test]
+    fn darwin_error_code_preserves_the_raw_errno() {
+        let err = io::Error::from_raw_os_error(13);
+        assert_eq!(darwin_error_code(&err), PlatformErrorCode::Darwin(13));
+    }
+
+    #[test]
     fn ioctl_request_codes_match_the_documented_bsd_encoding() {
         // DIOCADDRULE = _IOWR('D', 4, struct pfioc_rule) — spot-check
         // against the header's literal macro expansion rather than only
