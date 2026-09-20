@@ -65,13 +65,26 @@ read-only `RouteProvider` — see `ARCHITECTURE.md`'s Provider trait section).
 Removing a static neighbor refuses to delete a present but
 non-`Permanent` (dynamically learned) entry, returning `InvalidState`, so a
 removal request cannot silently evict a dynamically learned ARP/NDP cache
-entry. Reports involving unintended network mutation, partial DNS
-application, privilege confusion, or memory-safety issues in route,
-interface, DNS, neighbor, address, or monitoring message/data handling are
-in scope. Firewall, VLAN, VRF, namespace, and isolated destructive topology
-orchestration domains do not exist yet. Tunnel interface management is out
-of scope for this repository entirely; see the separate tunnel-lattice
-project for that domain's security policy.
+entry. Native-firewall policy replacement (`Capability::FIREWALL_MUTATION`,
+`FirewallMutator::set_firewall_policy`) is confined to one backend-owned
+managed object per platform (an nftables table on Linux, a WFP provider's
+own filters on Windows, a `pf` anchor on macOS) and never reads or writes
+firewall state configured by other tools; a report that this scoping can be
+bypassed, or that a `FirewallRule` compiles to a nftables/WFP/`pf` match
+different from what it describes, is in scope. The macOS firewall backend's
+raw `ioctl` structs (`net-lattice-backend-darwin`'s `firewall` module) are
+transcribed field-for-field from Apple's own published XNU kernel source
+(no safe Rust wrapper exists for `pf`, and Apple does not ship the
+kernel-private `net/pfvar.h` header in the public SDK) — a struct-layout
+mismatch there is a memory-safety class of bug (an `ioctl()` call copying
+the wrong number of bytes), not merely an incorrect-rule-match bug, so
+reports in this specific area are especially welcome. Reports involving unintended
+network mutation, partial DNS application, privilege confusion, or
+memory-safety issues in route, interface, DNS, neighbor, address, firewall,
+or monitoring message/data handling are in scope. VLAN, VRF, namespace, and
+isolated destructive topology orchestration domains do not exist yet.
+Tunnel interface management is out of scope for this repository entirely;
+see the separate tunnel-lattice project for that domain's security policy.
 
 The model also publishes a declarative desired-state layer built on top of
 the same providers above: a whole-system `DesiredState` aggregate, a pure
