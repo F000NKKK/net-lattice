@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - Pending
+
+Not yet published. Planned first stable release of `net-lattice`,
+`net-lattice-core`, `net-lattice-ip`, `net-lattice-model`,
+`net-lattice-platform`, `net-lattice-async`, and the
+`net-lattice-backend-{linux,windows,darwin}` platform backends on
+crates.io. The public API is frozen per the "Frozen 1.0 Public API
+Surface" audit in `ARCHITECTURE.md`; within the `1.x` line, additive
+changes will ship as minor releases, compatible fixes as patch releases,
+and a breaking change will require an explicit major version bump.
+
+### Added
+
+- Stage 1.0 public-API freeze audit and rustdoc completeness: documented
+  every remaining public struct/enum field, associated type, trait method,
+  and module across `net-lattice-core`, `net-lattice-ip`,
+  `net-lattice-model`, `net-lattice-platform`, and
+  `net-lattice-backend-linux`, and added `#![warn(missing_docs)]` to all 9
+  workspace crates so full rustdoc coverage is enforced going forward. No
+  public API shape changed from `0.21.1`.
+- VLAN, VRF, network namespaces, and firewall integration remain explicitly
+  out of scope for `1.0.0` (stage 0.22+): namespaces are not symmetric
+  across Linux/Windows/macOS and firewall requires a per-platform mechanism
+  and abstraction-depth decision, so both need their own architecture pass
+  before implementation starts. See `ARCHITECTURE.md`'s Incremental
+  Delivery Plan.
+
 ## [Unreleased]
 
 ### Added
@@ -58,33 +85,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the last one. Fixed by tracking each key's last occurrence *index*
   instead, independent of whether duplicate values happen to be equal.
   Caller order is still preserved for the surviving entries.
-
-## [1.0.0] - Pending
-
-Not yet published. Planned first stable release of `net-lattice`,
-`net-lattice-core`, `net-lattice-ip`, `net-lattice-model`,
-`net-lattice-platform`, `net-lattice-async`, and the
-`net-lattice-backend-{linux,windows,darwin}` platform backends on
-crates.io. The public API is frozen per the "Frozen 1.0 Public API
-Surface" audit in `ARCHITECTURE.md`; within the `1.x` line, additive
-changes will ship as minor releases, compatible fixes as patch releases,
-and a breaking change will require an explicit major version bump.
-
-### Added
-
-- Stage 1.0 public-API freeze audit and rustdoc completeness: documented
-  every remaining public struct/enum field, associated type, trait method,
-  and module across `net-lattice-core`, `net-lattice-ip`,
-  `net-lattice-model`, `net-lattice-platform`, and
-  `net-lattice-backend-linux`, and added `#![warn(missing_docs)]` to all 9
-  workspace crates so full rustdoc coverage is enforced going forward. No
-  public API shape changed from `0.21.1`.
-- VLAN, VRF, network namespaces, and firewall integration remain explicitly
-  out of scope for `1.0.0` (stage 0.22+): namespaces are not symmetric
-  across Linux/Windows/macOS and firewall requires a per-platform mechanism
-  and abstraction-depth decision, so both need their own architecture pass
-  before implementation starts. See `ARCHITECTURE.md`'s Incremental
-  Delivery Plan.
 
 ## [0.21.1] - 2026-08-11
 
