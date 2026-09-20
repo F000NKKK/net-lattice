@@ -824,7 +824,7 @@ Stages 0.15–0.20 построили transactions и declarative apply пове
 - **Снимок состояния** (`snapshot`): `CurrentState`.
 - **Декларативное желаемое состояние** (`desired_state`): `DesiredState`.
 - **Diff** (`diff`): `Diff`, `Change`, `RouteChange`, `InterfaceDiff`,
-  `NeighborChange`, `AddressChange`, `DnsChange`.
+  `NeighborChange`, `AddressChange`, `DnsChange`, `FirewallChange`.
 - **План применения** (`apply`): `ApplyPlan`, `ApplyPlanReport`,
   `ApplyStep`, `ApplyStepOutcome`, `NonConvergentReason`.
 - **События** (`event`): `Event`, `EventDomain`, `EventFilter`,
