@@ -910,22 +910,12 @@ a backend declare about itself" will miss these two methods.
   feature-gated (`async`) `TokioEventProvider`, `TokioEventReceiver`,
   `TokioEventSender`.
 - **`LatticeBackend`** — the compile-time bound a third-party backend must
-  satisfy; its exact set of supertraits (`RouteProvider`/`RouteMutator`/
-  `InterfaceProvider`/`InterfaceMutator`/`DnsMutator`/`NeighborProvider`/
-  `NeighborMutator`/`AddressProvider`/`AddressMutator`/`FirewallMutator`/
-  `EventProvider`/`AdditionProvider`/`CapabilityProvider`, each bound to the
-  concrete `net-lattice-model` type) is itself part of the frozen contract:
-  widening or narrowing it is a breaking change for every third-party
-  backend implementation. `AdditionProvider` was added as a required
-  supertrait in Stage 0.21 (ADR-0014); it is additive-safe for every
-  existing and third-party backend because both of its methods are
-  default-provided, so no existing implementation needed a code change to
-  keep compiling. `FirewallMutator` (which requires `FirewallProvider` as
-  its own supertrait) was added in stage 0.22 (ADR-0017) — unlike
-  `AdditionProvider`, this **is** a breaking addition for any third-party
-  backend that predates stage 0.22, since neither trait has a
-  default-provided implementation; a pre-existing third-party backend must
-  implement both before it can satisfy `LatticeBackend` again.
+  satisfy: `RouteProvider`/`RouteMutator`/`InterfaceProvider`/
+  `InterfaceMutator`/`DnsMutator`/`NeighborProvider`/`NeighborMutator`/
+  `AddressProvider`/`AddressMutator`/`FirewallMutator`/`EventProvider`/
+  `AdditionProvider`/`CapabilityProvider`, each bound to the concrete
+  `net-lattice-model` type. This exact set is part of the frozen contract;
+  changing it is a breaking change for every third-party backend.
 - **`Lattice<B>` public methods**: `routes`, `add_route`, `remove_route`,
   `interfaces`, `set_interface_config`, `dns_config`, `set_dns_config`,
   `firewall_rules`, `set_firewall_policy`, `clear_firewall_policy`,
