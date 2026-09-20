@@ -68,6 +68,8 @@ use windows::Win32::Networking::WinSock::{
 };
 use windows::core::{GUID, PWSTR};
 
+mod firewall;
+
 const AF_UNSPEC: ADDRESS_FAMILY = ADDRESS_FAMILY(0);
 
 // IANA `ifType` values (RFC 2863), not exposed as named constants by the
@@ -83,6 +85,11 @@ const IF_TYPE_BRIDGE: u32 = 209;
 /// traits.
 pub struct WindowsBackend {
     runtime: tokio::runtime::Runtime,
+    /// The last policy applied via `FirewallMutator::set_firewall_policy`.
+    /// `FirewallProvider::firewall_rules` serves this cache rather than a
+    /// native WFP filter enumeration — see `firewall.rs`'s module doc
+    /// comment for why.
+    firewall_policy: Mutex<Option<net_lattice_model::firewall::FirewallPolicy>>,
 }
 
 impl WindowsBackend {
@@ -90,7 +97,10 @@ impl WindowsBackend {
     pub fn new() -> Result<Self> {
         let runtime =
             tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;
-        Ok(Self { runtime })
+        Ok(Self {
+            runtime,
+            firewall_policy: Mutex::new(None),
+        })
     }
 }
 
@@ -1666,6 +1676,7 @@ impl CapabilityProvider for WindowsBackend {
             | Capability::INTERFACE_MTU
             | Capability::NEIGHBOR_MUTATION
             | Capability::ROUTE_MUTATION
+            | Capability::FIREWALL_MUTATION
     }
 }
 
