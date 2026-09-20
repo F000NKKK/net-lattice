@@ -111,11 +111,6 @@ impl Drop for DarwinWatch {
 pub struct DarwinBackend {
     runtime: tokio::runtime::Runtime,
     fd: i32,
-    /// The last policy applied via `FirewallMutator::set_firewall_policy`.
-    /// `FirewallProvider::firewall_rules` serves this cache rather than a
-    /// native `DIOCGETRULES` dump — see `firewall.rs`'s module doc comment
-    /// for why.
-    firewall_policy: std::sync::Mutex<Option<net_lattice_model::firewall::FirewallPolicy>>,
 }
 
 impl DarwinBackend {
@@ -128,11 +123,7 @@ impl DarwinBackend {
         if fd < 0 {
             return Err(Error::Platform(io_error_code(&io::Error::last_os_error())));
         }
-        Ok(Self {
-            runtime,
-            fd,
-            firewall_policy: std::sync::Mutex::new(None),
-        })
+        Ok(Self { runtime, fd })
     }
 }
 

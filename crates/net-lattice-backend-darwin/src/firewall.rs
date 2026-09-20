@@ -50,13 +50,27 @@
 //! `pf` has no equivalent to nftables' base-chain policy or a WFP
 //! condition-free lowest-weight filter, but the same effect follows from
 //! `quick` evaluation order.
+//!
+//! [`FirewallProvider::firewall_rules`] reads the anchor's rules directly
+//! from the kernel (`DIOCGETRULES` for the count and a snapshot ticket,
+//! then `DIOCGETRULE` per index) rather than serving a cached copy of the
+//! last-applied policy, so it reflects out-of-band changes (e.g. `pfctl`
+//! run by hand against the same anchor). Because `pf` stores one linear
+//! ruleset per anchor (`direction` is just a per-rule match field, not a
+//! separate chain), `pf_rule.nr`'s kernel-assigned order already matches
+//! the caller's original list order exactly, including interleaved
+//! directions — unlike the Linux backend's separate `inbound`/`outbound`
+//! chains, which can only preserve order within one direction.
 
 use std::ffi::CString;
 use std::io;
 
 use net_lattice_core::{Error, PlatformErrorCode, Result};
+use net_lattice_ip::{Ipv4Network, Ipv4PrefixLength, Ipv6Network, Ipv6PrefixLength};
 use net_lattice_model::Network;
-use net_lattice_model::firewall::{Direction, FirewallPolicy, FirewallRule, Protocol, Verdict};
+use net_lattice_model::firewall::{
+    Direction, FirewallPolicy, FirewallRule, PortRange, Protocol, Verdict,
+};
 use net_lattice_platform::{FirewallMutator, FirewallProvider};
 
 use crate::DarwinBackend;
@@ -104,6 +118,8 @@ mod pfvar {
     pub const PF_RULESET_FILTER: i32 = 1;
 
     pub const DIOCADDRULE: libc::c_ulong = ioc::iowr(b'D', 4, size_of::<PfiocRule>());
+    pub const DIOCGETRULES: libc::c_ulong = ioc::iowr(b'D', 6, size_of::<PfiocRule>());
+    pub const DIOCGETRULE: libc::c_ulong = ioc::iowr(b'D', 7, size_of::<PfiocRule>());
     pub const DIOCBEGINADDRS: libc::c_ulong = ioc::iowr(b'D', 51, size_of::<PfiocPooladdr>());
     pub const DIOCXBEGIN: libc::c_ulong = ioc::iowr(b'D', 81, size_of::<PfiocTrans>());
     pub const DIOCXCOMMIT: libc::c_ulong = ioc::iowr(b'D', 82, size_of::<PfiocTrans>());
@@ -668,23 +684,163 @@ fn apply_policy(policy: &FirewallPolicy) -> Result<()> {
     result
 }
 
+/// Decodes one `xport` back into a [`PortRange`], the inverse of
+/// [`set_port_xport`]. Returns `None` for [`pfvar::PF_OP_NONE`] (no port
+/// match set) or any other operator this module never itself writes.
+fn decode_port_range(xport: &pfvar::PfRuleXport) -> Option<PortRange> {
+    match xport.op {
+        pfvar::PF_OP_EQ => Some(PortRange::single(u16::from_be(xport.port[0]))),
+        pfvar::PF_OP_RRG => Some(PortRange::new(
+            u16::from_be(xport.port[0]),
+            u16::from_be(xport.port[1]),
+        )),
+        _ => None,
+    }
+}
+
+/// Decodes one `pf_rule_addr`'s address+mask into a [`Network`], given the
+/// address family `af` already tells us how many bytes are meaningful —
+/// see [`decode_pf_rule`] for why `af` (not the address bytes themselves)
+/// is the authoritative family signal.
+fn decode_remote(addr: &pfvar::PfRuleAddr, af: u8) -> Option<Network> {
+    if af == libc::AF_INET as u8 {
+        let bytes: [u8; 4] = addr.addr.v.addr.0[..4].try_into().ok()?;
+        let mask: [u8; 4] = addr.addr.v.mask.0[..4].try_into().ok()?;
+        let prefix = Ipv4PrefixLength::new(u32::from_be_bytes(mask).leading_ones() as u8)?;
+        let network = Ipv4Network::new(std::net::Ipv4Addr::from(bytes).into(), prefix);
+        Some(Network::V4(network))
+    } else if af == libc::AF_INET6 as u8 {
+        let bytes = addr.addr.v.addr.0;
+        let mask = addr.addr.v.mask.0;
+        let prefix = Ipv6PrefixLength::new(u128::from_be_bytes(mask).leading_ones() as u8)?;
+        let network = Ipv6Network::new(std::net::Ipv6Addr::from(bytes).into(), prefix);
+        Some(Network::V6(network))
+    } else {
+        None
+    }
+}
+
+/// Decodes one kernel-returned `pf_rule` back into a [`FirewallRule`],
+/// mirroring [`build_pf_rule`]'s exact field usage. Returns `None` for the
+/// trailing default-verdict catch-all rule ([`default_rule`] always writes
+/// `direction: PF_INOUT`, which no caller-authored [`FirewallRule`] ever
+/// produces — [`Direction`] only has `Inbound`/`Outbound`) or an
+/// unrecognized action.
+///
+/// `af` is the authoritative signal for whether `remote` is present at
+/// all, not merely which family it is: [`build_pf_rule`] always sets it
+/// from `config.remote`, `AF_UNSPEC` when `remote` is `None`. Without this,
+/// an explicit `0.0.0.0/0`/`::/0` remote (an all-zero address *and* mask,
+/// the same bit pattern a genuinely absent remote leaves behind) would be
+/// indistinguishable from no remote at all — matching every remote address
+/// either way, so this narrow case doesn't change a rule's actual behavior
+/// even if `af` were somehow wrong, but `af` makes the decode unambiguous
+/// regardless.
+fn decode_pf_rule(rule: &pfvar::PfRule) -> Option<FirewallRule> {
+    let direction = match rule.direction {
+        pfvar::PF_IN => Direction::Inbound,
+        pfvar::PF_OUT => Direction::Outbound,
+        _ => return None,
+    };
+    let verdict = match rule.action {
+        pfvar::PF_PASS => Verdict::Allow,
+        pfvar::PF_DROP => Verdict::Deny,
+        _ => return None,
+    };
+
+    let mut built = FirewallRule::new(direction, verdict);
+
+    if rule.ifname[0] != 0 {
+        let name_len = rule.ifname.iter().position(|&b| b == 0).unwrap_or(0);
+        if let Ok(name) = CString::new(&rule.ifname[..name_len]) {
+            let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
+            if index != 0 {
+                built = built.with_interface_index(index);
+            }
+        }
+    }
+
+    let remote_side = match direction {
+        Direction::Inbound => &rule.src,
+        Direction::Outbound => &rule.dst,
+        _ => unreachable!("Direction is non_exhaustive; every current variant is handled above"),
+    };
+    if let Some(remote) = decode_remote(remote_side, rule.af) {
+        built = built.with_remote(remote);
+    }
+
+    if rule.proto != 0
+        && let Some(protocol) = protocol_from_number(rule.proto)
+    {
+        built = built.with_protocol(protocol);
+        if let Some(port) = decode_port_range(&remote_side.xport) {
+            built = built.with_port(port);
+        }
+    }
+
+    Some(built)
+}
+
+fn protocol_from_number(number: u8) -> Option<Protocol> {
+    match number as i32 {
+        n if n == libc::IPPROTO_TCP => Some(Protocol::Tcp),
+        n if n == libc::IPPROTO_UDP => Some(Protocol::Udp),
+        n if n == libc::IPPROTO_ICMP || n == libc::IPPROTO_ICMPV6 => Some(Protocol::Icmp),
+        _ => None,
+    }
+}
+
+/// Reads every rule in the `net_lattice` anchor's filter ruleset directly
+/// from the kernel: `DIOCGETRULES` first (fills the rule count and a
+/// ticket identifying this snapshot), then one `DIOCGETRULE` per index
+/// using that same ticket, exactly mirroring `pfctl`'s own read pattern.
+/// `pf_rule.nr` (position in the anchor's single linear ruleset) is the
+/// kernel's own ordering, so — unlike the Linux backend's separate
+/// inbound/outbound chains — this preserves the caller's exact original
+/// order, including interleaved directions.
+fn read_anchor_rules() -> Result<Vec<FirewallRule>> {
+    let fd = open_pf()?;
+    let result = (|| -> Result<Vec<FirewallRule>> {
+        let mut count_request = pfvar::PfiocRule {
+            anchor: anchor_bytes(),
+            ..Default::default()
+        };
+        ioctl_checked(
+            fd,
+            pfvar::DIOCGETRULES,
+            pfvar::as_ioctl_arg(&mut count_request),
+        )?;
+
+        let mut rules = Vec::new();
+        for index in 0..count_request.nr {
+            let mut get_request = pfvar::PfiocRule {
+                anchor: anchor_bytes(),
+                ticket: count_request.ticket,
+                nr: index,
+                ..Default::default()
+            };
+            ioctl_checked(
+                fd,
+                pfvar::DIOCGETRULE,
+                pfvar::as_ioctl_arg(&mut get_request),
+            )?;
+            if let Some(decoded) = decode_pf_rule(&get_request.rule) {
+                rules.push(decoded);
+            }
+        }
+        Ok(rules)
+    })();
+    unsafe {
+        libc::close(fd);
+    }
+    result
+}
+
 impl FirewallProvider for DarwinBackend {
     type FirewallRule = FirewallRule;
 
     fn firewall_rules(&self) -> Result<Vec<Self::FirewallRule>> {
-        // Returns the last policy this process applied via
-        // `set_firewall_policy`, not a native `DIOCGETRULES` dump parsed
-        // back into `FirewallRule` — the same documented limitation as the
-        // Linux backend (tracked there as `NL-165`; not yet filed
-        // separately for Darwin).
-        let policy = self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        Ok(policy
-            .as_ref()
-            .map(|policy| policy.rules.clone())
-            .unwrap_or_default())
+        read_anchor_rules()
     }
 }
 
@@ -692,22 +848,11 @@ impl FirewallMutator for DarwinBackend {
     type FirewallPolicy = FirewallPolicy;
 
     fn set_firewall_policy(&self, policy: Self::FirewallPolicy) -> Result<()> {
-        apply_policy(&policy)?;
-        *self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner()) = Some(policy);
-        Ok(())
+        apply_policy(&policy)
     }
 
     fn clear_firewall_policy(&self) -> Result<()> {
-        let empty = FirewallPolicy::new(Verdict::Allow);
-        apply_policy(&empty)?;
-        *self
-            .firewall_policy
-            .lock()
-            .unwrap_or_else(|err| err.into_inner()) = Some(empty);
-        Ok(())
+        apply_policy(&FirewallPolicy::new(Verdict::Allow))
     }
 }
 
@@ -781,21 +926,54 @@ mod tests {
     /// validate). A passing run of this test, or `pfctl -a net_lattice -sr`
     /// inspection while it is paused mid-run, is the outstanding
     /// verification this crate's own author could not perform.
+    ///
+    /// Exercises every match shape `decode_pf_rule` handles (interface,
+    /// IPv4 remote, IPv6 remote, a single port, a port range, and a bare
+    /// protocol match) with directions deliberately interleaved, to verify
+    /// the module doc comment's claim that `pf`'s single linear ruleset
+    /// preserves the caller's exact original order.
     #[test]
     #[ignore]
     fn set_then_clear_firewall_policy_round_trips_through_the_kernel() {
-        use net_lattice_ip::{Ipv4Address, Ipv4Network, Ipv4PrefixLength};
+        use net_lattice_ip::{
+            Ipv4Address, Ipv4Network, Ipv4PrefixLength, Ipv6Address, Ipv6Network, Ipv6PrefixLength,
+        };
 
         let backend = DarwinBackend::new().expect("create backend");
-        let policy = FirewallPolicy::new(Verdict::Allow).with_rule(
-            FirewallRule::new(Direction::Outbound, Verdict::Deny)
-                .with_remote(Network::V4(Ipv4Network::new(
-                    Ipv4Address::new(198, 51, 100, 0),
-                    Ipv4PrefixLength::new(24).unwrap(),
-                )))
-                .with_protocol(Protocol::Udp)
-                .with_port(net_lattice_model::firewall::PortRange::single(53)),
+
+        let loopback_index = unsafe { libc::if_nametoindex(c"lo0".as_ptr()) };
+        assert_ne!(loopback_index, 0, "this host has no `lo0` interface");
+
+        let via_loopback = FirewallRule::new(Direction::Outbound, Verdict::Allow)
+            .with_interface_index(loopback_index);
+        let v6_remote = FirewallRule::new(Direction::Inbound, Verdict::Deny).with_remote(
+            Network::V6(Ipv6Network::new(
+                Ipv6Address::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0]),
+                Ipv6PrefixLength::new(32).unwrap(),
+            )),
         );
+        let v4_remote = FirewallRule::new(Direction::Outbound, Verdict::Deny).with_remote(
+            Network::V4(Ipv4Network::new(
+                Ipv4Address::new(198, 51, 100, 0),
+                Ipv4PrefixLength::new(24).unwrap(),
+            )),
+        );
+        let port_range = FirewallRule::new(Direction::Inbound, Verdict::Allow)
+            .with_protocol(Protocol::Tcp)
+            .with_port(net_lattice_model::firewall::PortRange::new(1000, 2000));
+        let single_port = FirewallRule::new(Direction::Outbound, Verdict::Allow)
+            .with_protocol(Protocol::Udp)
+            .with_port(net_lattice_model::firewall::PortRange::single(53));
+        let protocol_only =
+            FirewallRule::new(Direction::Outbound, Verdict::Deny).with_protocol(Protocol::Icmp);
+
+        let policy = FirewallPolicy::new(Verdict::Allow)
+            .with_rule(via_loopback)
+            .with_rule(v6_remote)
+            .with_rule(v4_remote)
+            .with_rule(port_range)
+            .with_rule(single_port)
+            .with_rule(protocol_only);
 
         backend
             .set_firewall_policy(policy.clone())
