@@ -5,16 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - Pending
+## [1.0.0] - 2026-09-20
 
-Not yet published. Planned first stable release of `net-lattice`,
-`net-lattice-core`, `net-lattice-ip`, `net-lattice-model`,
-`net-lattice-platform`, `net-lattice-async`, and the
+First stable release of `net-lattice`, `net-lattice-core`,
+`net-lattice-ip`, `net-lattice-model`, `net-lattice-platform`,
+`net-lattice-async`, and the
 `net-lattice-backend-{linux,windows,darwin}` platform backends on
 crates.io. The public API is frozen per the "Frozen 1.0 Public API
 Surface" audit in `ARCHITECTURE.md`; within the `1.x` line, additive
-changes will ship as minor releases, compatible fixes as patch releases,
-and a breaking change will require an explicit major version bump.
+changes ship as minor releases, compatible fixes as patch releases,
+and a breaking change requires an explicit major version bump.
 
 ### Added
 
