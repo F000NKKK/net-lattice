@@ -31,11 +31,11 @@ net-lattice-backend-darwin = { path = "crates/net-lattice-backend-darwin", versi
 net-lattice-async = { path = "crates/net-lattice-async", version = "1.0.0" }
 net-lattice = { path = "crates/net-lattice", version = "1.0.0" }
 
-bitflags = "2"
-tokio = { version = "1", features = ["rt"] }
-futures = "0.3"
+bitflags = "2.13.2"
+tokio = { version = "1.53.1", features = ["rt"] }
+futures = "0.3.34"
 
-rtnetlink = "0.23"
+rtnetlink = "0.23.0"
 # `nftnl-1-2-0` is the lowest vendored-bindings baseline in `nftnl-sys` that
 # compiles against this workspace's `nftnl` version at all (lower baselines
 # lack `NFTNL_UDATA_RULE_COMMENT`, which `nftnl::Rule::set_comment` requires
@@ -43,9 +43,9 @@ rtnetlink = "0.23"
 # `libnftnl` versions, not because the build machine's `libnftnl` must be
 # exactly 1.2.0. See net-lattice-backend-linux's README for the system
 # `libmnl`/`libnftnl` development-package build requirement this introduces.
-nftnl = { version = "0.9", features = ["nftnl-1-2-0"] }
-mnl = "0.3"
-windows = { version = "0.62", features = [
+nftnl = { version = "0.9.4", features = ["nftnl-1-2-0"] }
+mnl = "0.3.1"
+windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
@@ -54,4 +54,4 @@ windows = { version = "0.62", features = [
     "Win32_Security",
     "Win32_System_Rpc",
 ] }
-libc = { version = "0.2", features = ["extra_traits"] }
+libc = { version = "0.2.189", features = ["extra_traits"] }

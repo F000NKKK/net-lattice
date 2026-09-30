@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Raised every workspace dependency requirement to its latest release
+  (`bitflags` 2.13.2, `tokio` 1.53.1, `futures` 0.3.34, `rtnetlink`
+  0.23.0, `nftnl` 0.9.4, `mnl` 0.3.1, `windows` 0.62.2, `libc` 0.2.189),
+  matching the versions used across the Lattice ecosystem. No public API
+  change; the MSRV stays 1.93.
+
 ## [1.0.0] - 2026-09-20
 
 First stable release of `net-lattice`, `net-lattice-core`,
