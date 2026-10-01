@@ -4,8 +4,8 @@
 
 ### Provider Traits and Capability Contracts for Net Lattice Backends
 
-[![crates.io](https://img.shields.io/crates/v/net-lattice-platform.svg)](https://crates.io/crates/net-lattice-platform)
-[![docs.rs](https://img.shields.io/docsrs/net-lattice-platform)](https://docs.rs/net-lattice-platform)
+[![crates.io](https://img.shields.io/crates/v/net-lattice-platform.svg?cacheSeconds=86400)](https://crates.io/crates/net-lattice-platform)
+[![docs.rs](https://img.shields.io/docsrs/net-lattice-platform?cacheSeconds=86400)](https://docs.rs/net-lattice-platform)
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.93-lightgrey.svg)](https://github.com/F000NKKK/net-lattice)
 

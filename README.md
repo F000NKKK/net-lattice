@@ -6,9 +6,9 @@
 
 ### Typed, Cross-Platform OS Networking for Rust
 
-[![crates.io](https://img.shields.io/crates/v/net-lattice.svg)](https://crates.io/crates/net-lattice)
-[![docs.rs](https://img.shields.io/docsrs/net-lattice)](https://docs.rs/net-lattice)
-[![Downloads](https://img.shields.io/crates/d/net-lattice.svg)](https://crates.io/crates/net-lattice)
+[![crates.io](https://img.shields.io/crates/v/net-lattice.svg?cacheSeconds=86400)](https://crates.io/crates/net-lattice)
+[![docs.rs](https://img.shields.io/docsrs/net-lattice?cacheSeconds=86400)](https://docs.rs/net-lattice)
+[![Downloads](https://img.shields.io/crates/d/net-lattice.svg?cacheSeconds=86400)](https://crates.io/crates/net-lattice)
 [![CI](https://github.com/F000NKKK/net-lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/F000NKKK/net-lattice/actions/workflows/ci.yml)
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.93-lightgrey.svg)](Cargo.toml)

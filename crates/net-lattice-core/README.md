@@ -4,8 +4,8 @@
 
 ### Shared Errors, Results, and IDs for Net Lattice
 
-[![crates.io](https://img.shields.io/crates/v/net-lattice-core.svg)](https://crates.io/crates/net-lattice-core)
-[![docs.rs](https://img.shields.io/docsrs/net-lattice-core)](https://docs.rs/net-lattice-core)
+[![crates.io](https://img.shields.io/crates/v/net-lattice-core.svg?cacheSeconds=86400)](https://crates.io/crates/net-lattice-core)
+[![docs.rs](https://img.shields.io/docsrs/net-lattice-core?cacheSeconds=86400)](https://docs.rs/net-lattice-core)
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.93-lightgrey.svg)](https://github.com/F000NKKK/net-lattice)
 
