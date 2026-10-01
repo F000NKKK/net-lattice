@@ -1,37 +1,103 @@
-# net-lattice
+<div align="center">
 
-Cross-platform network inspection and configuration through one strongly typed
-Rust API. This is the application-facing Net Lattice crate.
+# 🌐 net-lattice
 
-## What it provides
+### Typed, Cross-Platform OS Networking for Rust
 
-- automatic native backend selection on Linux, Windows, and macOS;
-- inspection of interfaces, addresses, routes, neighbors, and DNS;
-- `current_state()`, a single call returning a whole-system `CurrentState`
-  snapshot (routes, interfaces, neighbors, addresses, DNS, and firewall
-  rules) assembled from the same per-domain reads, with zero extra backend
-  code required;
-- imperative route, address, resolver, and static ARP/NDP neighbor mutation;
-- native-firewall policy management (`firewall_rules`/`set_firewall_policy`/
-  `clear_firewall_policy`) — atomic whole-policy replacement on Linux
-  (nftables), Windows (WFP), and macOS (`pf`), also reachable declaratively
-  through `DesiredState::with_firewall`/`Diff::firewall`/`ApplyPlan`;
-- partial interface MTU and administrative-state configuration;
-- filtered native change monitoring, plus an opt-in `watch_with_additions`
-  entry point that merges native events with any backend-reported
-  `Addition`s — explicitly opt-in, lesser-quality workarounds (for example,
-  polling) for a gap a platform has no native mechanism for;
-- ordered `MutationPlan` execution with runtime validation, cancellation,
+[![crates.io](https://img.shields.io/crates/v/net-lattice.svg)](https://crates.io/crates/net-lattice)
+[![docs.rs](https://img.shields.io/docsrs/net-lattice)](https://docs.rs/net-lattice)
+[![Downloads](https://img.shields.io/crates/d/net-lattice.svg)](https://crates.io/crates/net-lattice)
+[![CI](https://github.com/F000NKKK/net-lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/F000NKKK/net-lattice/actions/workflows/ci.yml)
+[![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE)
+[![MSRV](https://img.shields.io/badge/MSRV-1.93-lightgrey.svg)](https://github.com/F000NKKK/net-lattice)
+
+![Linux](https://img.shields.io/badge/Linux-supported-success)
+![Windows](https://img.shields.io/badge/Windows-supported-success)
+![macOS](https://img.shields.io/badge/macOS-supported-success)
+
+[Overview](#-overview) • [Features](#-key-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Declarative Apply](#-declarative-apply-execution) • [Firewall](#-firewall-policy-management) • [Monitoring](#-monitoring-capabilities)
+
+</div>
+
+---
+
+## 📖 Overview
+
+Cross-platform network inspection and configuration through one strongly
+typed Rust API. This is the application-facing crate of
+[Net Lattice](https://github.com/F000NKKK/net-lattice): it selects the
+native backend for the current OS and exposes inspection, mutation,
+transactions, declarative apply, and monitoring through `Lattice`.
+
+### 🎯 Why net-lattice?
+
+- **🔤 Typed values, not strings**: interfaces, addresses, routes,
+  neighbors, DNS, and firewall rules are Rust types, never parsed tool
+  output.
+- **🧩 Native APIs, not subprocesses**: Netlink on Linux, IP Helper and WFP
+  on Windows, routing sockets and `pf` on macOS.
+- **🧭 Query, don't assume**: runtime `Capability` flags say what the
+  connected backend supports; unsupported requests fail with a typed error.
+- **🛡️ Intent separate from observation**: every mutation takes a desired
+  intent type and returns a fresh observed read-back.
+
+## 🌟 Key Features
+
+- ✅ automatic native backend selection on Linux, Windows, and macOS;
+- ✅ inspection of interfaces, addresses, routes, neighbors, and DNS;
+- ✅ `current_state()`, a single call returning a whole-system
+  `CurrentState` snapshot (routes, interfaces, neighbors, addresses, DNS,
+  and firewall rules) assembled from the same per-domain reads, with zero
+  extra backend code required;
+- ✅ imperative route, address, resolver, and static ARP/NDP neighbor
+  mutation;
+- ✅ native-firewall policy management (`firewall_rules`/
+  `set_firewall_policy`/`clear_firewall_policy`) — atomic whole-policy
+  replacement on Linux (nftables), Windows (WFP), and macOS (`pf`), also
+  reachable declaratively through `DesiredState::with_firewall`/
+  `Diff::firewall`/`ApplyPlan`;
+- ✅ partial interface MTU and administrative-state configuration;
+- ✅ filtered native change monitoring, plus an opt-in
+  `watch_with_additions` entry point that merges native events with any
+  backend-reported `Addition`s — explicitly opt-in, lesser-quality
+  workarounds (for example, polling) for a gap a platform has no native
+  mechanism for;
+- ✅ ordered `MutationPlan` execution with runtime validation, cancellation,
   snapshots, explicit compensation, and per-operation reports;
-- declarative `ApplyPlan` execution (compiled from a `DesiredState`/`Diff`
-  pair) with capability-aware rejection, per-backend route-replacement
-  ordering, mandatory read-after-write verification, and convergence/
-  non-convergence reporting.
+- ✅ declarative `ApplyPlan` execution (compiled from a `DesiredState`/
+  `Diff` pair) with capability-aware rejection, per-backend
+  route-replacement ordering, mandatory read-after-write verification, and
+  convergence/non-convergence reporting.
+
+## 💻 Supported Platforms
+
+| Platform | Backend | Firewall | Monitoring |
+|---|---|---|---|
+| **Linux** | Netlink (`net-lattice-backend-linux`) | nftables | all domains |
+| **Windows** | IP Helper (`net-lattice-backend-windows`) | WFP | routes, interfaces, addresses; neighbors via the polling `Addition` |
+| **macOS** | routing sockets (`net-lattice-backend-darwin`) | `pf` | all domains |
+
+The full per-capability matrix is in the
+[project README](https://github.com/F000NKKK/net-lattice#-supported-platforms).
+CI runs the privileged facade tests on all three platforms.
+
+## 📦 Installation
+
+```toml
+[dependencies]
+# Synchronous API
+net-lattice = "1.0"
+
+# Plus the runtime-independent async event stream (`Lattice::watch_async`)
+net-lattice = { version = "1.0", features = ["async"] }
+```
 
 Enable the optional `async` feature for a runtime-independent
-`futures::Stream` watcher surface.
+`futures::Stream` watcher surface. On Linux, building needs the `libmnl` and
+`libnftnl` development packages (for example
+`apt-get install libmnl-dev libnftnl-dev`).
 
-## Quick start
+## 🎓 Quick Start
 
 ```rust,no_run
 use net_lattice::{Lattice, Result};
@@ -45,7 +111,7 @@ fn main() -> Result<()> {
 }
 ```
 
-## Whole-system snapshot
+## 📸 Whole-system snapshot
 
 `current_state()` reads routes, interfaces, neighbors, addresses, DNS, and
 firewall rules in one call and returns them as a single `CurrentState`. Each
@@ -65,7 +131,7 @@ fn main() -> Result<()> {
 }
 ```
 
-## Transaction execution
+## 🔁 Transaction execution
 
 `MutationPlan` is data only. Pass a plan and one `ExecutionOptions` value to
 `Lattice::execute_plan`; callbacks can request cancellation, capture prior
@@ -73,7 +139,7 @@ state, and perform explicit compensation without multiplying facade methods.
 The returned report preserves plan indices and distinguishes validation,
 snapshot, execution, cancellation, and compensation boundaries.
 
-## Declarative apply execution
+## 🧾 Declarative apply execution
 
 `DesiredState` and `Diff::compute` produce a pure, side-effect-free `Diff`;
 `ApplyPlan::compile(&diff)` compiles it into an ordered list of `ApplyStep`s,
@@ -114,7 +180,7 @@ For the common "what would change" case — no need to execute anything —
 `current_state()` → `Diff::compute` without compiling or executing a plan.
 See the `declarative_diff` example.
 
-## Interface configuration
+## 🎛️ Interface configuration
 
 `InterfaceConfig` is desired intent, distinct from the observed `Interface`.
 Build a patch with at least one requested setting, check the matching runtime
@@ -149,7 +215,7 @@ When one patch asks for both MTU and administrative state, a native backend
 may use separate writes. Treat errors as potentially partially applied and use
 an explicit `MutationPlan` compensator if restoration is needed.
 
-## Static neighbor mutation
+## 🏘️ Static neighbor mutation
 
 `StaticNeighbor` is desired intent, distinct from the observed `NeighborEntry`:
 it carries neither the synthesized `NeighborId` nor the observed
@@ -188,7 +254,7 @@ fn main() -> Result<()> {
 }
 ```
 
-## Firewall policy management
+## 🔥 Firewall policy management
 
 `FirewallPolicy` is an ordered list of `FirewallRule`s plus a default
 verdict, evaluated first-match-wins. `set_firewall_policy` replaces the
@@ -223,11 +289,12 @@ to the same `set_firewall_policy` call. There is no separate "clear"
 mutation variant — `clear_firewall_policy()` is sugar for
 `set_firewall_policy(FirewallPolicy::new(Verdict::Allow))`.
 
-See `firewall_policy` for a runnable example and
-`net-lattice-backend-linux`'s `kill_switch` example for a more elaborate
-usage pattern built on this same API.
+See the [`firewall_policy`](https://github.com/F000NKKK/net-lattice/blob/main/crates/net-lattice/examples/firewall_policy.rs)
+example for a runnable example and `net-lattice-backend-linux`'s
+[`kill_switch`](https://github.com/F000NKKK/net-lattice/blob/main/crates/net-lattice-backend-linux/examples/kill_switch.rs)
+example for a more elaborate usage pattern built on this same API.
 
-## Monitoring capabilities
+## 📡 Monitoring capabilities
 
 Select only event domains the connected backend advertises. The aggregate
 `Capability::MONITORING` means all route, interface, neighbor, and address
@@ -249,10 +316,30 @@ fn main() -> Result<()> {
 }
 ```
 
-## Platform and privilege notes
+## 🔐 Platform and privilege notes
 
 Read-only APIs are generally unprivileged. Network mutations require the
-native privileges and policy allowed by the operating system. Runtime
-capabilities describe implemented surfaces, not a guarantee that the current
-process is authorized. Prefer a read-after-write check when the operation's
-confirmation contract requires it.
+native privileges and policy allowed by the operating system
+(`CAP_NET_ADMIN` on Linux, an Administrator context on Windows, root on
+macOS). Runtime capabilities describe implemented surfaces, not a guarantee
+that the current process is authorized. Prefer a read-after-write check when
+the operation's confirmation contract requires it.
+
+## 📚 Examples
+
+Runnable examples covering every facade operation live in
+[`crates/net-lattice/examples`](https://github.com/F000NKKK/net-lattice/tree/main/crates/net-lattice/examples).
+Run one with `cargo run -p net-lattice --example <name>` (add
+`--features async` for `async_monitor`). Mutation examples require an
+explicit environment-variable opt-in and elevated privilege.
+
+## 📖 Documentation
+
+- **API reference**: [docs.rs/net-lattice](https://docs.rs/net-lattice)
+- **Architecture**: [ARCHITECTURE.md](https://github.com/F000NKKK/net-lattice/blob/main/ARCHITECTURE.md)
+- **Changelog**: [CHANGELOG.md](https://github.com/F000NKKK/net-lattice/blob/main/CHANGELOG.md)
+- **Project**: [github.com/F000NKKK/net-lattice](https://github.com/F000NKKK/net-lattice)
+
+## 📄 License
+
+Licensed under the [Mozilla Public License 2.0](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE).

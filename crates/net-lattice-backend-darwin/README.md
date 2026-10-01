@@ -1,33 +1,73 @@
-# net-lattice-backend-darwin
+<div align="center">
 
-macOS backend for Net Lattice using BSD routing sockets, `getifaddrs`, and
-native ioctls. It implements the generic `net-lattice-platform` contracts.
+# 🍎 net-lattice-backend-darwin
 
-## What it provides
+### The macOS Routing-Socket Backend for Net Lattice
 
-- interface, address, route, neighbor, and resolver inspection;
-- route, address, resolver, and static ARP/NDP neighbor mutation where macOS
-  exposes portable semantics;
-- administrative-state and MTU configuration through `SIOCSIFFLAGS` and
+[![crates.io](https://img.shields.io/crates/v/net-lattice-backend-darwin.svg)](https://crates.io/crates/net-lattice-backend-darwin)
+[![docs.rs](https://img.shields.io/docsrs/net-lattice-backend-darwin)](https://docs.rs/net-lattice-backend-darwin)
+[![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE)
+[![MSRV](https://img.shields.io/badge/MSRV-1.93-lightgrey.svg)](https://github.com/F000NKKK/net-lattice)
+
+![macOS](https://img.shields.io/badge/macOS-supported-success)
+
+[Overview](#-overview) • [Features](#-key-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Interface Configuration](#-interface-configuration) • [Privileges](#-privileges-and-safety)
+
+</div>
+
+---
+
+## 📖 Overview
+
+macOS backend for [Net Lattice](https://github.com/F000NKKK/net-lattice)
+using BSD routing sockets, `getifaddrs`, and native ioctls. It implements
+the generic `net-lattice-platform` contracts.
+
+> Applications should normally use the
+> [`net-lattice`](https://crates.io/crates/net-lattice) facade, which
+> selects this backend automatically on macOS. Direct use is intended for
+> backend integration and diagnostics. Firewall policy management is
+> reachable through the facade via `Lattice::firewall_rules`/
+> `set_firewall_policy`/`clear_firewall_policy`.
+
+## 🌟 Key Features
+
+- ✅ interface, address, route, neighbor, and resolver inspection;
+- ✅ route, address, resolver, and static ARP/NDP neighbor mutation where
+  macOS exposes portable semantics;
+- ✅ administrative-state and MTU configuration through `SIOCSIFFLAGS` and
   `SIOCSIFMTU`, with fresh observed-interface readback;
-- routing-socket monitoring and optional async delivery;
-- native-firewall (`pf`) policy management (`FirewallMutator`,
+- ✅ routing-socket monitoring and optional async delivery;
+- ✅ native-firewall (`pf`) policy management (`FirewallMutator`,
   `Capability::FIREWALL_MUTATION`), atomically replacing one managed `pf`
   anchor (`net_lattice`);
-- preservation of native error codes in the shared error model.
+- ✅ preservation of native error codes in the shared error model.
 
-Applications should normally use the `net-lattice` facade, which selects this
-backend automatically on macOS. Direct use is intended for backend integration
-and diagnostics. Firewall policy management is reachable through the facade
-via `Lattice::firewall_rules`/`set_firewall_policy`/`clear_firewall_policy`.
+## 💻 Platform and Feature Flags
 
-## Build requirements
+The crate compiles to an empty library on any target other than macOS.
+
+| Feature | Effect |
+|---|---|
+| `async` | Native async event delivery (enables `net-lattice-platform/async`) |
+
+## 🧰 Build Requirements
 
 Firewall management uses raw `ioctl` calls on `/dev/pf` — no build-time
 system package is required. See the `firewall` module's own documentation
 for the risk profile of that approach.
 
-## Direct usage
+## 📦 Installation
+
+```toml
+[dependencies]
+net-lattice-backend-darwin = "1.0"
+
+# With native async event delivery
+net-lattice-backend-darwin = { version = "1.0", features = ["async"] }
+```
+
+## 🎓 Quick Start
 
 ```rust,no_run
 use net_lattice_platform::InterfaceProvider;
@@ -41,7 +81,7 @@ fn main() -> net_lattice_core::Result<()> {
 }
 ```
 
-## Interface configuration
+## 🔧 Interface Configuration
 
 `InterfaceConfig` is a partial desired-state patch, distinct from the
 observed `Interface`. The backend resolves its target from the observed ID,
@@ -73,6 +113,8 @@ have applied one requested field. Re-read the interface after errors and use
 the facade transaction executor's explicit compensation only when restoration
 is required.
 
+## 📡 Monitoring
+
 The native PF_ROUTE watcher maps `RTM_IFINFO` notifications to the existing
 `Event::Interface { kind: ChangeKind::Changed }` signal; the facade does not
 synthesize a duplicate event. The shared privileged test runner intentionally
@@ -81,7 +123,7 @@ interface, so it does not claim end-to-end delivery for a value-changing
 configuration. Consumers should always re-read observed state after a change
 signal.
 
-## Privileges and safety
+## 🔐 Privileges and Safety
 
 Inspection is normally unprivileged. Mutations can require root or specific
 system entitlements and may interact with macOS network configuration
@@ -94,3 +136,13 @@ replacement requires root; it is confined to the `net_lattice` anchor and
 never reads or writes rules configured by other tools (e.g. `pfctl` run by
 hand against a different anchor). Privileged tests run separately and must
 restore changed state.
+
+## 📖 Documentation
+
+- **API reference**: [docs.rs/net-lattice-backend-darwin](https://docs.rs/net-lattice-backend-darwin)
+- **Facade**: [`net-lattice`](https://crates.io/crates/net-lattice), which selects this backend on macOS
+- **Project**: [github.com/F000NKKK/net-lattice](https://github.com/F000NKKK/net-lattice)
+
+## 📄 License
+
+Licensed under the [Mozilla Public License 2.0](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE).
