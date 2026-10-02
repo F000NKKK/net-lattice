@@ -9,7 +9,8 @@
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.93-lightgrey.svg)](https://github.com/F000NKKK/net-lattice)
 
-[Overview](#-overview) • [Features](#-key-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Contract Notes](#-contract-notes)
+[Overview](#-overview) • [Features](#-key-features) • [Installation](#-installation)
+• [Quick Start](#-quick-start) • [Contract Notes](#-contract-notes)
 
 </div>
 
@@ -31,46 +32,38 @@ workspace's concrete domain model.
 
 ## 🌟 Key Features
 
-- ✅ generic inspection and mutation provider traits using associated types:
-  `RouteProvider`/`RouteMutator`, `InterfaceProvider`/`InterfaceMutator`
-  (desired administrative-state and MTU patches), `DnsProvider`/
-  `DnsMutator`, `NeighborProvider`/`NeighborMutator` (static ARP/NDP entry
-  add/remove intent), `AddressProvider`/`AddressMutator`, and
-  `FirewallProvider`/`FirewallMutator` (whole-policy atomic replace of one
-  backend-owned native-firewall table/chain pair);
-  `RouteMutator` additionally exposes two default-provided methods,
-  `supports_route_metric` and `route_replace_order` (returning the
-  `RouteReplaceOrder` enum), describing fixed per-backend facts a
-  destination-paired route replacement needs — most backends inherit the
-  defaults unchanged;
-- ✅ `SnapshotProvider`, a generic whole-system state assembly contract; no
-  backend implements it directly — the facade supplies the implementation,
-  covering any backend that already implements the read providers above;
-- ✅ runtime `Capability` reporting;
-- ✅ synchronous event sender/receiver contracts;
-- ✅ optional native Tokio watcher contracts behind the `async` feature;
-- ✅ `Addition`/`AdditionProvider`, a disjoint, explicitly opt-in tier of
-  non-native capabilities implemented through a lesser-quality mechanism
-  (for example, polling instead of a native push subscription).
-  `AdditionProvider` extends `EventProvider`; both of its methods,
-  `additions` and `watch_addition`, are default-provided (empty/
-  `Error::Unsupported`) so a backend with nothing to add costs nothing.
-  `Addition` never expands what `Capability` means — it is a separate,
-  `#[non_exhaustive]` flag set a caller must request explicitly.
-
-## 🚩 Feature Flags
-
-| Feature | Effect |
-|---|---|
-| `async` | Native Tokio watcher contracts (`TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`); pulls in `tokio` |
+- **Provider/mutator traits** with associated types: `RouteProvider`/
+  `RouteMutator`, `InterfaceProvider`/`InterfaceMutator` (administrative
+  state and MTU patches), `DnsProvider`/`DnsMutator`, `NeighborProvider`/
+  `NeighborMutator` (static ARP/NDP add/remove), `AddressProvider`/
+  `AddressMutator`, and `FirewallProvider`/`FirewallMutator` (atomic
+  whole-policy replace of one backend-owned native-firewall table/chain
+  pair).
+- **Route-replacement facts**: `RouteMutator`'s default-provided
+  `supports_route_metric` and `route_replace_order` (returning
+  `RouteReplaceOrder`) describe fixed per-backend facts a destination-paired
+  route replacement needs; most backends inherit the defaults.
+- **`SnapshotProvider`**: a whole-system state assembly contract. No backend
+  implements it directly; the facade supplies it for any backend that
+  implements the read providers above.
+- runtime `Capability` reporting and synchronous event sender/receiver
+  contracts.
+- **`async` feature**: native Tokio watcher contracts (`TokioEventProvider`,
+  `TokioEventReceiver`, `TokioEventSender`); pulls in `tokio`.
+- **`Addition`/`AdditionProvider`**: a disjoint, explicitly opt-in tier of
+  non-native capabilities built on a lesser-quality mechanism (for example
+  polling instead of a native push subscription). `AdditionProvider`
+  extends `EventProvider`; its `additions` and `watch_addition` methods
+  default to empty/`Error::Unsupported`, so a backend with nothing to add
+  costs nothing. `Addition` never expands what `Capability` means: it is a
+  separate `#[non_exhaustive]` flag set a caller must request explicitly.
 
 ## 📦 Installation
 
 ```toml
 [dependencies]
 net-lattice-platform = "1.0"
-
-# With the native Tokio watcher contracts
+# or, with the native Tokio watcher contracts:
 net-lattice-platform = { version = "1.0", features = ["async"] }
 ```
 
@@ -87,22 +80,21 @@ fn supports_route_monitoring<P: CapabilityProvider>(provider: &P) -> bool {
 ## 📜 Contract Notes
 
 Capabilities report implemented runtime surfaces. They do not guarantee that
-the current process has native privileges or that state cannot change between
-validation and submission. In particular,
-`Capability::INTERFACE_ADMIN_STATE` and `Capability::INTERFACE_MTU` gate a
-backend's interface-configuration surface independently; a caller requesting
-both settings must require both flags.
+the current process has native privileges or that state cannot change
+between validation and submission. `Capability::INTERFACE_ADMIN_STATE` and
+`Capability::INTERFACE_MTU` gate interface configuration independently; a
+caller requesting both settings must require both flags.
 
-Monitoring is also domain-specific: `ROUTE_MONITORING`,
-`INTERFACE_MONITORING`, `NEIGHBOR_MONITORING`, and `ADDRESS_MONITORING` each
-mean that the backend has a native delivery path for that domain.
-`MONITORING` is their all-domain aggregate, not merely proof that some watcher
-can be constructed.
+Monitoring is domain-specific: `ROUTE_MONITORING`, `INTERFACE_MONITORING`,
+`NEIGHBOR_MONITORING`, and `ADDRESS_MONITORING` each mean the backend has a
+native delivery path for that domain. `MONITORING` is their all-domain
+aggregate, not merely proof that some watcher can be constructed.
 
-`Capability::NEIGHBOR_MUTATION` gates static ARP/NDP add/remove support and is
-distinct from `NEIGHBOR_MONITORING`. `Capability::ROUTE_MUTATION` gates route
-add/remove support and is distinct from `ROUTE_MONITORING`. All three shipped
-backends (Linux, Windows, macOS) advertise both.
+`Capability::NEIGHBOR_MUTATION` gates static ARP/NDP add/remove and is
+distinct from `NEIGHBOR_MONITORING`; `Capability::ROUTE_MUTATION` gates
+route add/remove and is distinct from `ROUTE_MONITORING`. All three shipped
+backends (Linux, Windows, macOS) advertise both mutation flags; Windows does
+not advertise `NEIGHBOR_MONITORING`.
 
 ## 📖 Documentation
 
@@ -111,4 +103,5 @@ backends (Linux, Windows, macOS) advertise both.
 
 ## 📄 License
 
-Licensed under the [Mozilla Public License 2.0](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE).
+Licensed under the
+[Mozilla Public License 2.0](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE).

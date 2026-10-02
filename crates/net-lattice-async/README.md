@@ -9,7 +9,8 @@
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.93-lightgrey.svg)](https://github.com/F000NKKK/net-lattice)
 
-[Overview](#-overview) • [Features](#-key-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Runtime Behavior](#runtime-behavior)
+[Overview](#-overview) • [Features](#-key-features) • [Installation](#-installation)
+• [Quick Start](#-quick-start) • [Runtime Behavior](#runtime-behavior)
 
 </div>
 
@@ -66,9 +67,11 @@ a native Tokio receiver is exposed without that worker.
 ## 📖 Documentation
 
 - **API reference**: [docs.rs/net-lattice-async](https://docs.rs/net-lattice-async)
-- **Facade**: [`net-lattice`](https://crates.io/crates/net-lattice), whose `async` feature uses this crate
+- **Facade**: [`net-lattice`](https://crates.io/crates/net-lattice), whose
+  `async` feature uses this crate
 - **Project**: [github.com/F000NKKK/net-lattice](https://github.com/F000NKKK/net-lattice)
 
 ## 📄 License
 
-Licensed under the [Mozilla Public License 2.0](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE).
+Licensed under the
+[Mozilla Public License 2.0](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE).
