@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-02
+
 ### Changed
 
 - Compacted the crate READMEs for crates.io: no tables, short sections
