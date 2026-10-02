@@ -95,6 +95,7 @@ fails, the whole call fails and returns no partial state.
 - **Interfaces**: `InterfaceConfig` (MTU and/or `DesiredAdminState`) is
   intent, distinct from the observed `Interface`, with at least one setting.
   Check `INTERFACE_MTU`/`INTERFACE_ADMIN_STATE`; success returns a re-read.
+  Pick the target interface by name, never the first or loopback one.
   A backend may use separate native writes, so an error can leave a
   combined patch partially applied.
 - **Static neighbors**: `StaticNeighbor` has no `NeighborId` or observed
@@ -132,7 +133,8 @@ first-match-wins. `set_firewall_policy` replaces the backend's entire
 managed policy atomically (no incremental add/remove); `firewall_rules`
 reads it live from the kernel/engine on every shipped backend.
 `clear_firewall_policy()` is `set_firewall_policy(FirewallPolicy::new(Verdict::Allow))`;
-`DesiredState::with_firewall` compiles a `FirewallChange` to the same call.
+a `DesiredState::with_firewall` policy becomes a `FirewallChange` in
+`Diff::compute`, which `ApplyPlan::compile` turns into the same call.
 See also the Linux backend's fail-closed
 [`kill_switch`](https://github.com/F000NKKK/net-lattice/blob/main/crates/net-lattice-backend-linux/examples/kill_switch.rs).
 
