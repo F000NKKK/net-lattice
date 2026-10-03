@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.99"
 license = "MPL-2.0"
 repository = "https://github.com/F000NKKK/net-lattice"
 homepage = "https://github.com/F000NKKK/net-lattice"

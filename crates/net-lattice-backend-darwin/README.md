@@ -7,7 +7,7 @@
 [![crates.io](https://img.shields.io/crates/v/net-lattice-backend-darwin.svg?cacheSeconds=86400)](https://crates.io/crates/net-lattice-backend-darwin)
 [![docs.rs](https://img.shields.io/docsrs/net-lattice-backend-darwin?cacheSeconds=86400)](https://docs.rs/net-lattice-backend-darwin)
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/F000NKKK/net-lattice/blob/main/LICENSE)
-[![MSRV](https://img.shields.io/badge/MSRV-1.93-lightgrey.svg)](https://github.com/F000NKKK/net-lattice)
+[![MSRV](https://img.shields.io/badge/MSRV-1.99-lightgrey.svg)](https://github.com/F000NKKK/net-lattice)
 
 ![macOS](https://img.shields.io/badge/macOS-supported-success)
 
