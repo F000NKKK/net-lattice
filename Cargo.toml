@@ -35,7 +35,7 @@ bitflags = "2.13.2"
 tokio = { version = "1.53.1", features = ["rt"] }
 futures = "0.3.34"
 
-rtnetlink = "0.23.0"
+rtnetlink = "0.24.0"
 # `nftnl-1-2-0` is the lowest vendored-bindings baseline in `nftnl-sys` that
 # compiles against this workspace's `nftnl` version at all (lower baselines
 # lack `NFTNL_UDATA_RULE_COMMENT`, which `nftnl::Rule::set_comment` requires
