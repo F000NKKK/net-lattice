@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Raised the minimum supported Rust version and CI toolchain to 1.100.
+
 ## [1.0.4] - 2026-10-03
 
 ### Changed
