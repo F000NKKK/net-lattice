@@ -61,9 +61,9 @@ privileged facade tests on all three
 
 ```toml
 [dependencies]
-net-lattice = "1.0"
+net-lattice = "1.1"
 # or, with the runtime-independent async event stream (`Lattice::watch_async`):
-# net-lattice = { version = "1.0", features = ["async"] }
+# net-lattice = { version = "1.1", features = ["async"] }
 ```
 
 On Linux, building needs the `libmnl` and `libnftnl` development packages

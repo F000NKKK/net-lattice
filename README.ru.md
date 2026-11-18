@@ -73,7 +73,7 @@ BSD routing facilities в macOS и другие механизмы. Прилож
   осознанно, с вниманием к дизайну API и долгосрочной поддерживаемости, а
   не поспешно, чтобы покрыть все мыслимые сценарии.
 
-> **Статус:** `1.0` — текущая стабильная линия. Net Lattice предоставляет
+> **Статус:** `1.1` — текущая стабильная линия. Net Lattice предоставляет
 > кроссплатформенный просмотр сети, изменение маршрутов, адресов, DNS,
 > administrative state и MTU интерфейсов, статических записей ARP/NDP и
 > native-firewall, inspectable планы mutation-операций, упорядоченное
@@ -191,10 +191,10 @@ Matrix and Gaps» и «Гарантии доставки событий»). Би
 ```toml
 [dependencies]
 # Synchronous API
-net-lattice = "1.0"
+net-lattice = "1.1"
 
 # Plus the runtime-independent async event stream (`Lattice::watch_async`)
-# net-lattice = { version = "1.0", features = ["async"] }
+# net-lattice = { version = "1.1", features = ["async"] }
 ```
 
 `async` — единственная feature. Она добавляет watcher в виде
@@ -518,7 +518,7 @@ README с назначением и примером использования:
 
 ## 🗺️ Дорожная карта
 
-`1.0` — текущая стабильная линия: полная кроссплатформенная поддержка
+`1.1` — текущая стабильная линия: полная кроссплатформенная поддержка
 inspection, monitoring, imperative mutation, упорядоченных транзакций,
 декларативного apply и управления native-firewall policy (imperative и
 транзакционное), каждая с privileged regression coverage на Linux,

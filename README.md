@@ -69,7 +69,7 @@ shell commands, or ad hoc string parsing.
   deliberately, with attention to API design and long-term
   maintainability, rather than rushed to cover every possible use case.
 
-> **Status:** `1.0` is the current stable line. Net Lattice provides
+> **Status:** `1.1` is the current stable line. Net Lattice provides
 > cross-platform network inspection, route, address, DNS,
 > administrative-state, MTU, static ARP/NDP neighbor, and native-firewall
 > mutation, inspectable mutation plans, ordered transaction execution with
@@ -182,10 +182,10 @@ addition-sourced events on a backend that does not report it.
 ```toml
 [dependencies]
 # Synchronous API
-net-lattice = "1.0"
+net-lattice = "1.1"
 
 # Plus the runtime-independent async event stream (`Lattice::watch_async`)
-# net-lattice = { version = "1.0", features = ["async"] }
+# net-lattice = { version = "1.1", features = ["async"] }
 ```
 
 `async` is the only feature. It adds a `futures::Stream` watcher surface and
@@ -500,7 +500,7 @@ own crate-level README with its scope and a usage example:
 
 ## 🗺️ Roadmap
 
-1.0 is the current stable line: complete cross-platform inspection,
+1.1 is the current stable line: complete cross-platform inspection,
 monitoring, imperative mutation, ordered transactions, declarative apply,
 and native-firewall policy management (imperative and transactional), each
 with privileged regression coverage on Linux, Windows, and macOS. See

@@ -52,11 +52,11 @@ The crate compiles to an empty library on any target other than Linux. The
 
 ```toml
 [dependencies]
-net-lattice-backend-linux = "1.0"
+net-lattice-backend-linux = "1.1"
 # or, with native async event delivery:
-# net-lattice-backend-linux = { version = "1.0", features = ["async"] }
-net-lattice-core = "1.0"
-net-lattice-platform = "1.0"
+# net-lattice-backend-linux = { version = "1.1", features = ["async"] }
+net-lattice-core = "1.1"
+net-lattice-platform = "1.1"
 ```
 
 Firewall management links against `libmnl` and `libnftnl` via the `nftnl`

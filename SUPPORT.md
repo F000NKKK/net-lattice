@@ -10,6 +10,9 @@ Thank you for your interest in Net Lattice.
 
 ## Project Status
 
+The current stable release line is 1.1.x; the workspace requires Rust 1.100
+or newer.
+
 Net Lattice provides cross-platform network inspection, route, interface,
 interface-address, DNS resolver, static ARP/NDP neighbor and native firewall mutation,
 interface administrative-state and MTU configuration, inspectable data-only

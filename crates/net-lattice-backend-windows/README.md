@@ -66,11 +66,11 @@ latency/ordering/coalescing/resource-cost tier (see the
 
 ```toml
 [dependencies]
-net-lattice-backend-windows = "1.0"
+net-lattice-backend-windows = "1.1"
 # or, with native async event delivery:
-# net-lattice-backend-windows = { version = "1.0", features = ["async"] }
-net-lattice-core = "1.0"
-net-lattice-platform = "1.0"
+# net-lattice-backend-windows = { version = "1.1", features = ["async"] }
+net-lattice-core = "1.1"
+net-lattice-platform = "1.1"
 ```
 
 ## 🎓 Quick Start

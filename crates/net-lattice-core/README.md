@@ -40,7 +40,7 @@ is platform-independent and performs no operating-system or network I/O.
 
 ```toml
 [dependencies]
-net-lattice-core = "1.0"
+net-lattice-core = "1.1"
 ```
 
 ## 🎓 Quick Start

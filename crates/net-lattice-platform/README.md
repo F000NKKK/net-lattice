@@ -62,9 +62,9 @@ workspace's concrete domain model.
 
 ```toml
 [dependencies]
-net-lattice-platform = "1.0"
+net-lattice-platform = "1.1"
 # or, with the native Tokio watcher contracts:
-# net-lattice-platform = { version = "1.0", features = ["async"] }
+# net-lattice-platform = { version = "1.1", features = ["async"] }
 ```
 
 ## 🎓 Quick Start

@@ -76,7 +76,7 @@ data and contracts; it never inspects or mutates the host system.
 
 ```toml
 [dependencies]
-net-lattice-model = "1.0"
+net-lattice-model = "1.1"
 ```
 
 ## 🎓 Quick Start

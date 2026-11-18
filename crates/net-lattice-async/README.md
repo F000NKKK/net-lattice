@@ -38,7 +38,7 @@ Runtime-independent asynchronous event-stream adapter for
 
 ```toml
 [dependencies]
-net-lattice-async = "1.0"
+net-lattice-async = "1.1"
 futures = "0.3"  # for `StreamExt` in the example below
 ```
 

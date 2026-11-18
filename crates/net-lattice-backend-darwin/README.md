@@ -53,11 +53,11 @@ module's documentation describes the risk profile of that approach.
 
 ```toml
 [dependencies]
-net-lattice-backend-darwin = "1.0"
+net-lattice-backend-darwin = "1.1"
 # or, with native async event delivery:
-# net-lattice-backend-darwin = { version = "1.0", features = ["async"] }
-net-lattice-core = "1.0"
-net-lattice-platform = "1.0"
+# net-lattice-backend-darwin = { version = "1.1", features = ["async"] }
+net-lattice-core = "1.1"
+net-lattice-platform = "1.1"
 ```
 
 ## 🎓 Quick Start
