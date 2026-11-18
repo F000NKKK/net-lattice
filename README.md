@@ -185,7 +185,7 @@ addition-sourced events on a backend that does not report it.
 net-lattice = "1.0"
 
 # Plus the runtime-independent async event stream (`Lattice::watch_async`)
-net-lattice = { version = "1.0", features = ["async"] }
+# net-lattice = { version = "1.0", features = ["async"] }
 ```
 
 `async` is the only feature. It adds a `futures::Stream` watcher surface and
@@ -240,7 +240,7 @@ events as a `futures::Stream`.
 
 Net Lattice assembles whole-system `CurrentState` snapshots:
 `net-lattice-model`'s `CurrentState` aggregates routes, interfaces,
-neighbors, interface addresses, and DNS configuration;
+neighbors, interface addresses, DNS configuration, and firewall rules;
 `net-lattice-platform::SnapshotProvider` describes the assembly contract;
 and `Lattice::current_state()` implements it, failing fast on the first
 constituent read error with no partial result. No backend crate needs any

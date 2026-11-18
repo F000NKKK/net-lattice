@@ -716,7 +716,7 @@ that the native sources do not provide.
 
 ## API Stability Rules
 
-Once published, different crates in this workspace are expected to change
+Different published crates in this workspace are expected to change
 at different rates, and consumers need to know which promises hold at
 which layer:
 
@@ -741,13 +741,13 @@ which layer:
 
 This ranking exists so that a change's blast radius can be reasoned about
 before it's made, not so that any crate is exempt from normal semver
-discipline once Lattice reaches 1.0.
+discipline in the stable 1.x line.
 
 ## Frozen 1.0 Public API Surface
 
 This is the consolidated, per-crate checklist of the public items that fall
-under the semver discipline in the "API Stability Rules" section above once
-Lattice reaches 1.0. It exists so a reviewer can check "is this item on the
+under the semver discipline in the "API Stability Rules" section above for
+the stable 1.x line. It exists so a reviewer can check "is this item on the
 frozen list" without re-deriving the workspace's public surface from source
 by hand. Nearly every domain-shaped struct and enum below is already
 `#[non_exhaustive]` — new fields/variants remain additive after 1.0 — so

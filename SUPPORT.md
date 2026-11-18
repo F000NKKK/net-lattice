@@ -11,7 +11,7 @@ Thank you for your interest in Net Lattice.
 ## Project Status
 
 Net Lattice provides cross-platform network inspection, route, interface,
-interface-address, DNS resolver, and static ARP/NDP neighbor mutation,
+interface-address, DNS resolver, static ARP/NDP neighbor and native firewall mutation,
 interface administrative-state and MTU configuration, inspectable data-only
 mutation plans, side-effect-free preflight analysis, ordered transaction
 execution with runtime preflight, operation-boundary cancellation, typed
@@ -20,7 +20,7 @@ object/domain-filterable monitoring with optional native async event
 delivery, and whole-system `CurrentState` snapshot assembly
 (`net-lattice-model::CurrentState`, `net-lattice-platform::SnapshotProvider`,
 `Lattice::current_state()`) aggregating routes, interfaces, neighbors,
-interface addresses, and DNS configuration in one fail-fast call with no
+interface addresses, DNS configuration and firewall rules in one fail-fast call with no
 partial result. `RouteProvider`/`RouteMutator` and every other domain follow
 the same read-only provider / mutator pattern, gated by explicit
 `Capability` flags. `InterfaceConfig` remains a partial imperative patch, but
@@ -42,7 +42,7 @@ the same merged receiver, and this release ships one concrete instance,
 Windows neighbor-monitoring-via-polling
 (`Addition::NEIGHBOR_MONITORING_POLLING`), as an opt-in substitute where
 native neighbor-change monitoring is still unavailable on that platform.
-This release also completed the pre-1.0 API freeze and hardening pass:
+The 1.0 release completed the API freeze and hardening pass:
 the public surface is now frozen, the platform-support-matrix and event-
 delivery-guarantee documentation is consolidated, and privileged regression
 coverage is complete across all three backends. See [README.md](README.md)'s

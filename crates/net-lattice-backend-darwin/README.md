@@ -55,7 +55,9 @@ module's documentation describes the risk profile of that approach.
 [dependencies]
 net-lattice-backend-darwin = "1.0"
 # or, with native async event delivery:
-net-lattice-backend-darwin = { version = "1.0", features = ["async"] }
+# net-lattice-backend-darwin = { version = "1.0", features = ["async"] }
+net-lattice-core = "1.0"
+net-lattice-platform = "1.0"
 ```
 
 ## 🎓 Quick Start

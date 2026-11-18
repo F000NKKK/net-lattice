@@ -63,7 +63,7 @@ privileged facade tests on all three
 [dependencies]
 net-lattice = "1.0"
 # or, with the runtime-independent async event stream (`Lattice::watch_async`):
-net-lattice = { version = "1.0", features = ["async"] }
+# net-lattice = { version = "1.0", features = ["async"] }
 ```
 
 On Linux, building needs the `libmnl` and `libnftnl` development packages

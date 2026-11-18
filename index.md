@@ -47,12 +47,11 @@ flow-lattice     Policy compiler: rules -> platform-neutral network plans
 sdk-lattice      Application-facing SDK composing the crates above
 ```
 
-The other four repositories (https://github.com/F000NKKK/{tunnel,dns,flow,sdk}-lattice)
-are in the bootstrap stage: repository workflow and packaging scaffolding
-exist, ported from this repo, but no implementation or public API has shipped
-yet. Cross-repository dependency direction and API boundaries have not been
-decided; they will be recorded as ADRs once that design work happens. Do not
-assume any of these repositories track this repo's roadmap stage.
+The sibling repositories are at different stages: DNS Lattice has a stable
+1.x line, Tunnel Lattice has a pre-1.0 implementation, and Flow Lattice and
+SDK Lattice are bootstrap projects. Their own repositories document their
+current releases, integration boundaries and roadmap; do not assume they
+track Net Lattice's roadmap stage.
 
 ## Dependency direction
 
@@ -94,7 +93,7 @@ an internal facade component until repeated reuse justifies a new crate.
 
 ## Current release and roadmap
 
-Published stage baseline: the `net-lattice 0.21` release line (see
+The current supported stable line is `net-lattice 1.0` (see
 `SECURITY.md`'s supported-version table). Read the current workspace version
 from `crates/net-lattice/Cargo.toml`; do not duplicate a patch version here.
 
@@ -128,13 +127,12 @@ from `crates/net-lattice/Cargo.toml`; do not duplicate a patch version here.
   hardening audit — the `Addition` tier (ADR-0014/`NL-A-16`), `Error`
   `#[non_exhaustive]` (ADR-0015/`NL-A-17`), the "Frozen 1.0 Public API
   Surface" inventory in `ARCHITECTURE.md`, and full rustdoc coverage
-  (`#![warn(missing_docs)]` on every crate). The path to `1.0` is closed:
-  the compatibility audit it is gated on is done, and `1.0.0` is ready for
-  its first stable release whenever the user runs the release script.
+  (`#![warn(missing_docs)]` on every crate).
+- 0.22 and 1.0: native firewall management and the stable API release are
+  complete; consult `ARCHITECTURE.md` and `CHANGELOG.md` for details.
 
-The completed Stage 0.16/0.17 plan and audit records are maintained as
-internal working-tree evidence. The next-stage planning workspace is
-likewise kept outside the published crate documentation.
+Task plans, audit records and decisions are maintained in YouTrack; they
+are separate from the published crate documentation.
 `.codex/`, this index, and root `AGENTS.md` are intentionally local agent
 context in this checkout and are not release content.
 

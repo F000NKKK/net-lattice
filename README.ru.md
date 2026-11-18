@@ -194,7 +194,7 @@ Matrix and Gaps» и «Гарантии доставки событий»). Би
 net-lattice = "1.0"
 
 # Plus the runtime-independent async event stream (`Lattice::watch_async`)
-net-lattice = { version = "1.0", features = ["async"] }
+# net-lattice = { version = "1.0", features = ["async"] }
 ```
 
 `async` — единственная feature. Она добавляет watcher в виде
@@ -249,7 +249,7 @@ fn main() -> Result<()> {
 
 Net Lattice собирает снапшоты `CurrentState` для всей системы:
 `CurrentState` в `net-lattice-model` объединяет маршруты, интерфейсы,
-соседей, адреса интерфейсов и конфигурацию DNS;
+соседей, адреса интерфейсов, конфигурацию DNS и правила firewall;
 `net-lattice-platform::SnapshotProvider` описывает контракт сборки;
 `Lattice::current_state()` реализует его, завершаясь с первой же ошибкой
 чтения без частичного результата. Ни одному backend-крейту не требуется

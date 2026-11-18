@@ -54,7 +54,9 @@ The crate compiles to an empty library on any target other than Linux. The
 [dependencies]
 net-lattice-backend-linux = "1.0"
 # or, with native async event delivery:
-net-lattice-backend-linux = { version = "1.0", features = ["async"] }
+# net-lattice-backend-linux = { version = "1.0", features = ["async"] }
+net-lattice-core = "1.0"
+net-lattice-platform = "1.0"
 ```
 
 Firewall management links against `libmnl` and `libnftnl` via the `nftnl`

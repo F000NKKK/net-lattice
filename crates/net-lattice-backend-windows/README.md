@@ -68,7 +68,9 @@ latency/ordering/coalescing/resource-cost tier (see the
 [dependencies]
 net-lattice-backend-windows = "1.0"
 # or, with native async event delivery:
-net-lattice-backend-windows = { version = "1.0", features = ["async"] }
+# net-lattice-backend-windows = { version = "1.0", features = ["async"] }
+net-lattice-core = "1.0"
+net-lattice-platform = "1.0"
 ```
 
 ## 🎓 Quick Start
