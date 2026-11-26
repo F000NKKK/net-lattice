@@ -42,11 +42,13 @@ use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteMessage}
 use rtnetlink::{Handle, MulticastGroup, RouteMessageBuilder};
 
 mod firewall;
+mod netlink_dump;
 
 /// The Linux Netlink-backed implementation of Net Lattice's provider traits.
 pub struct LinuxBackend {
     runtime: tokio::runtime::Runtime,
     handle: Handle,
+    dump: std::sync::Mutex<netlink_dump::DumpSocket>,
 }
 
 struct LinuxWatch {
@@ -76,7 +78,12 @@ impl LinuxBackend {
         let (connection, handle, _) =
             rtnetlink::new_connection().map_err(|err| Error::Platform(io_error_code(&err)))?;
         runtime.spawn(connection);
-        Ok(Self { runtime, handle })
+        let dump = std::sync::Mutex::new(netlink_dump::DumpSocket::open()?);
+        Ok(Self {
+            runtime,
+            handle,
+            dump,
+        })
     }
 }
 
@@ -555,18 +562,15 @@ impl InterfaceProvider for LinuxBackend {
     type Interface = Interface;
 
     fn interfaces(&self) -> Result<Vec<Self::Interface>> {
-        self.runtime.block_on(async {
-            let mut links = self.handle.link().get().execute();
-            let mut interfaces = Vec::new();
-            while let Some(message) = links
-                .try_next()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))?
-            {
-                interfaces.push(message_to_interface(&message));
-            }
-            Ok(interfaces)
-        })
+        let mut socket = self.dump.lock().map_err(|_| Error::InvalidState)?;
+        let messages = socket.dump(RouteNetlinkMessage::GetLink(LinkMessage::default()))?;
+        Ok(messages
+            .into_iter()
+            .filter_map(|message| match message {
+                RouteNetlinkMessage::NewLink(link) => Some(message_to_interface(&link)),
+                _ => None,
+            })
+            .collect())
     }
 }
 
@@ -1230,6 +1234,24 @@ mod tests {
                 .any(|iface| iface.name == "lo" && iface.kind == InterfaceKind::Loopback),
             "expected a `lo` interface classified as Loopback, got: {interfaces:?}"
         );
+    }
+
+    #[test]
+    fn interfaces_can_be_read_inside_a_runtime() {
+        let _guard = kernel_test_guard();
+        let backend = LinuxBackend::new().expect("open backend");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("create test runtime");
+        runtime.block_on(async {
+            assert!(
+                backend
+                    .interfaces()
+                    .expect("read interfaces")
+                    .iter()
+                    .any(|iface| iface.name == "lo")
+            );
+        });
     }
 
     /// The advertised capabilities are the cross-platform contract exposed
