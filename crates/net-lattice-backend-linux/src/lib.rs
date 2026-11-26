@@ -381,34 +381,21 @@ impl RouteProvider for LinuxBackend {
     type Route = Route;
 
     fn routes(&self) -> Result<Vec<Self::Route>> {
-        self.runtime.block_on(async {
-            let route_handle = self.handle.route();
-
-            let mut v4 = route_handle
-                .get(RouteMessageBuilder::<std::net::Ipv4Addr>::new().build())
-                .execute();
-
-            let mut routes = Vec::new();
-            while let Some(message) = v4
-                .try_next()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))?
-            {
-                routes.extend(message_to_route(&message));
+        let mut socket = self.dump.lock().map_err(|_| Error::InvalidState)?;
+        let requests = [
+            RouteMessageBuilder::<std::net::Ipv4Addr>::new().build(),
+            RouteMessageBuilder::<std::net::Ipv6Addr>::new().build(),
+        ];
+        let mut routes = Vec::new();
+        for request in requests {
+            for message in socket.dump(RouteNetlinkMessage::GetRoute(request))? {
+                let RouteNetlinkMessage::NewRoute(route) = message else {
+                    return Err(Error::Platform(PlatformErrorCode::Linux(0)));
+                };
+                routes.extend(message_to_route(&route));
             }
-
-            let mut v6 = route_handle
-                .get(RouteMessageBuilder::<std::net::Ipv6Addr>::new().build())
-                .execute();
-            while let Some(message) = v6
-                .try_next()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))?
-            {
-                routes.extend(message_to_route(&message));
-            }
-            Ok(routes)
-        })
+        }
+        Ok(routes)
     }
 }
 
@@ -1235,7 +1222,7 @@ mod tests {
     }
 
     #[test]
-    fn interface_address_and_neighbor_reads_work_inside_a_runtime() {
+    fn network_reads_work_inside_a_runtime() {
         let _guard = kernel_test_guard();
         let backend = LinuxBackend::new().expect("open backend");
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1251,6 +1238,7 @@ mod tests {
             );
             backend.addresses().expect("read addresses");
             backend.neighbors().expect("read neighbors");
+            backend.routes().expect("read routes");
         });
     }
 
