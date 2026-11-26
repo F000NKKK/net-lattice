@@ -50,6 +50,12 @@ pub use neighbor_mutator::NeighborMutator;
 pub use neighbor_provider::NeighborProvider;
 pub use route_provider::{RouteMutator, RouteProvider, RouteReplaceOrder};
 pub use snapshot_provider::SnapshotProvider;
+/// Executor-independent name for the native async event receiver.
+#[cfg(feature = "async")]
+pub use tokio_event_provider::TokioEventReceiver as AsyncEventReceiver;
+/// Executor-independent name for the native async event sender.
+#[cfg(feature = "async")]
+pub use tokio_event_provider::TokioEventSender as AsyncEventSender;
 #[cfg(feature = "async")]
 pub use tokio_event_provider::{TokioEventReceiver, TokioEventSender};
 
@@ -80,4 +86,46 @@ pub trait TokioEventProvider {
         &self,
         filter: Self::EventFilter,
     ) -> net_lattice_core::Result<TokioEventReceiver<Self::Event>>;
+
+    /// Creates an executor-independent native watcher using `filter`.
+    ///
+    /// This is the runtime-neutral spelling of [`Self::watch_tokio`].
+    fn watch_async(
+        &self,
+        filter: Self::EventFilter,
+    ) -> net_lattice_core::Result<AsyncEventReceiver<Self::Event>> {
+        self.watch_tokio(filter)
+    }
+}
+
+/// Executor-independent name for the native async event provider contract.
+#[cfg(feature = "async")]
+pub use TokioEventProvider as AsyncEventProvider;
+
+#[cfg(all(test, feature = "async"))]
+mod async_name_tests {
+    use super::{AsyncEventProvider, AsyncEventReceiver, TokioEventProvider};
+
+    struct Provider;
+
+    impl TokioEventProvider for Provider {
+        type Event = u8;
+        type EventFilter = ();
+
+        fn watch_tokio(&self, _: ()) -> net_lattice_core::Result<AsyncEventReceiver<u8>> {
+            let (sender, receiver) = AsyncEventReceiver::bounded();
+            assert!(sender.send(7, || 0));
+            Ok(receiver)
+        }
+    }
+
+    #[test]
+    fn neutral_provider_method_delegates_to_existing_implementation() {
+        let mut receiver = AsyncEventProvider::watch_async(&Provider, ()).unwrap();
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(matches!(
+            std::pin::Pin::new(&mut receiver).poll_recv(&mut cx),
+            std::task::Poll::Ready(Some(Ok(7)))
+        ));
+    }
 }

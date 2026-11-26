@@ -364,7 +364,10 @@ pub mod backend {
         RouteMutator, RouteProvider, RouteReplaceOrder, SnapshotProvider,
     };
     #[cfg(feature = "async")]
-    pub use net_lattice_platform::{TokioEventProvider, TokioEventReceiver, TokioEventSender};
+    pub use net_lattice_platform::{
+        AsyncEventProvider, AsyncEventReceiver, AsyncEventSender, TokioEventProvider,
+        TokioEventReceiver, TokioEventSender,
+    };
 }
 
 /// Bound satisfied by any backend usable with [`Lattice`].

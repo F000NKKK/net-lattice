@@ -97,6 +97,9 @@ pub fn from_tokio_receiver<E>(receiver: TokioEventReceiver<E>) -> EventStream<E>
     }
 }
 
+/// Executor-independent name for [`from_tokio_receiver`].
+pub use from_tokio_receiver as from_async_receiver;
+
 impl<E> Stream for EventStream<E> {
     type Item = Result<E>;
 

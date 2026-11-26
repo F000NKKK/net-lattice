@@ -48,9 +48,11 @@ workspace's concrete domain model.
   implements the read providers above.
 - runtime `Capability` reporting and synchronous event sender/receiver
   contracts.
-- **`async` feature**: native watcher contracts (`TokioEventProvider`,
-  `TokioEventReceiver`, `TokioEventSender`). The names are retained for API
-  compatibility; the channel does not depend on Tokio or an executor.
+- **`async` feature**: native watcher contracts (`AsyncEventProvider`,
+  `AsyncEventReceiver`, `AsyncEventSender`). The older `TokioEvent*` names
+  remain available for compatibility; the channel does not depend on Tokio.
+  Existing provider implementations implement `watch_tokio`; callers may use
+  the equivalent `watch_async` method.
 - **`Addition`/`AdditionProvider`**: a disjoint, explicitly opt-in tier of
   non-native capabilities built on a lesser-quality mechanism (for example
   polling instead of a native push subscription). `AdditionProvider`
