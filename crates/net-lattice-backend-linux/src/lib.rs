@@ -13,7 +13,9 @@
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
+#[cfg(test)]
+use futures::TryStreamExt;
 use net_lattice_core::{Error, Id, PlatformErrorCode, Result};
 use net_lattice_model::dns::{DnsConfig, NewDnsConfig};
 use net_lattice_model::event::{ChangeKind, Event, EventFilter};
@@ -39,7 +41,7 @@ use rtnetlink::packet_route::neighbour::{
     NeighbourAddress, NeighbourAttribute, NeighbourMessage, NeighbourState as RtNeighbourState,
 };
 use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteMessage};
-use rtnetlink::{Handle, MulticastGroup, RouteMessageBuilder};
+use rtnetlink::{AddressMessageBuilder, Handle, MulticastGroup, RouteMessageBuilder};
 
 mod firewall;
 mod netlink_dump;
@@ -211,19 +213,25 @@ impl AddressMutator for LinuxBackend {
         }
         let interface_index = address.interface_id.value() as u32;
         let (ip, prefix_len) = network_to_std(address.address);
-        self.runtime.block_on(async {
-            let mut request = self.handle.address().add(interface_index, ip, prefix_len);
-            if let Some(broadcast) = address.broadcast {
-                request
-                    .message_mut()
-                    .attributes
-                    .push(AddressAttribute::Broadcast(broadcast.into()));
-            }
-            request
-                .execute()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))
-        })?;
+        let mut message = match ip {
+            IpAddr::V4(value) => AddressMessageBuilder::<std::net::Ipv4Addr>::new()
+                .index(interface_index)
+                .address(value, prefix_len)
+                .build(),
+            IpAddr::V6(value) => AddressMessageBuilder::<std::net::Ipv6Addr>::new()
+                .index(interface_index)
+                .address(value, prefix_len)
+                .build(),
+        };
+        if let Some(broadcast) = address.broadcast {
+            message
+                .attributes
+                .push(AddressAttribute::Broadcast(broadcast.into()));
+        }
+        self.dump.lock().map_err(|_| Error::InvalidState)?.change(
+            RouteNetlinkMessage::NewAddress(message),
+            rtnetlink::packet_core::NLM_F_CREATE | rtnetlink::packet_core::NLM_F_EXCL,
+        )?;
 
         self.addresses()?
             .into_iter()
@@ -234,27 +242,18 @@ impl AddressMutator for LinuxBackend {
     }
 
     fn remove_address(&self, address: Self::InterfaceAddress) -> Result<()> {
-        self.runtime.block_on(async {
-            let mut messages = self.handle.address().get().execute();
-            while let Some(message) = messages
-                .try_next()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))?
+        let mut socket = self.dump.lock().map_err(|_| Error::InvalidState)?;
+        for message in socket.dump(RouteNetlinkMessage::GetAddress(AddressMessage::default()))? {
+            let RouteNetlinkMessage::NewAddress(message) = message else {
+                return Err(Error::Platform(PlatformErrorCode::Linux(0)));
+            };
+            if message_to_interface_address(&message)
+                .is_some_and(|observed| observed.id == address.id)
             {
-                if message_to_interface_address(&message)
-                    .is_some_and(|observed| observed.id == address.id)
-                {
-                    return self
-                        .handle
-                        .address()
-                        .del(message)
-                        .execute()
-                        .await
-                        .map_err(|err| Error::Platform(rtnetlink_error_code(&err)));
-                }
+                return socket.change(RouteNetlinkMessage::DelAddress(message), 0);
             }
-            Err(Error::NotFound)
-        })
+        }
+        Err(Error::NotFound)
     }
 }
 

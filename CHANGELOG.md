@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The optional native event channel no longer depends on Tokio. Its provider,
   receiver, sender and stream adapter use `AsyncEvent*`, `watch_async`, and
   `from_async_receiver` names. This renames the previous public API.
-- Linux interface, address, neighbor, and route inspection, route changes,
+- Linux interface, address, neighbor, and route inspection, route and address changes,
   and interface configuration use a synchronous Netlink socket; other
   mutations and monitoring still use the Tokio runtime.
 
