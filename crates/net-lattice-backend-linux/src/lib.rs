@@ -593,24 +593,14 @@ impl InterfaceMutator for LinuxBackend {
         let index = u32::try_from(config.interface_id().value()).map_err(|_| Error::NotFound)?;
         let message = interface_config_to_link_change(&config)?;
 
-        self.runtime.block_on(async {
-            self.handle
-                .link()
-                .change(message)
-                .execute()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))
-        })?;
-
-        self.runtime.block_on(async {
-            let mut links = self.handle.link().get().match_index(index).execute();
-            links
-                .try_next()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))?
-                .map(|message| message_to_interface(&message))
-                .ok_or(Error::NotFound)
-        })
+        self.dump
+            .lock()
+            .map_err(|_| Error::InvalidState)?
+            .change(RouteNetlinkMessage::NewLink(message), 0)?;
+        self.interfaces()?
+            .into_iter()
+            .find(|interface| interface.index == index)
+            .ok_or(Error::NotFound)
     }
 }
 
