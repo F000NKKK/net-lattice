@@ -34,6 +34,8 @@ use net_lattice_platform::{
 };
 #[cfg(feature = "async")]
 use net_lattice_platform::{AsyncEventProvider, AsyncEventReceiver};
+#[cfg(test)]
+use rtnetlink::Handle;
 use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::address::{AddressAttribute, AddressMessage};
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkLayerType, LinkMessage, State};
@@ -41,7 +43,7 @@ use rtnetlink::packet_route::neighbour::{
     NeighbourAddress, NeighbourAttribute, NeighbourMessage, NeighbourState as RtNeighbourState,
 };
 use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteMessage};
-use rtnetlink::{AddressMessageBuilder, Handle, MulticastGroup, RouteMessageBuilder};
+use rtnetlink::{AddressMessageBuilder, MulticastGroup, RouteMessageBuilder};
 
 mod firewall;
 mod netlink_dump;
@@ -49,6 +51,7 @@ mod netlink_dump;
 /// The Linux Netlink-backed implementation of Net Lattice's provider traits.
 pub struct LinuxBackend {
     runtime: tokio::runtime::Runtime,
+    #[cfg(test)]
     handle: Handle,
     dump: std::sync::Mutex<netlink_dump::DumpSocket>,
 }
@@ -66,23 +69,24 @@ impl Drop for LinuxWatch {
 }
 
 impl LinuxBackend {
-    /// Connects to the kernel over Netlink, spawning a private Tokio runtime
-    /// to drive the connection.
+    /// Connects to the kernel over Netlink and creates the monitoring runtime.
     pub fn new() -> Result<Self> {
         let runtime =
             tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;
-        // `rtnetlink::new_connection` constructs a `tokio::io::unix::AsyncFd`
-        // socket synchronously, which requires an active Tokio reactor
-        // context at construction time (not just when later polled) -
-        // without `_guard`, this panics with "there is no reactor running"
-        // the moment `add_route`/`remove_route`/`routes` first drives it.
-        let _guard = runtime.enter();
-        let (connection, handle, _) =
-            rtnetlink::new_connection().map_err(|err| Error::Platform(io_error_code(&err)))?;
-        runtime.spawn(connection);
+        // The native test fixtures still use rtnetlink to manage disposable
+        // interfaces. Production operations use the synchronous socket.
+        #[cfg(test)]
+        let handle = {
+            let _guard = runtime.enter();
+            let (connection, handle, _) =
+                rtnetlink::new_connection().map_err(|err| Error::Platform(io_error_code(&err)))?;
+            runtime.spawn(connection);
+            handle
+        };
         let dump = std::sync::Mutex::new(netlink_dump::DumpSocket::open()?);
         Ok(Self {
             runtime,
+            #[cfg(test)]
             handle,
             dump,
         })
@@ -93,6 +97,7 @@ fn io_error_code(err: &std::io::Error) -> PlatformErrorCode {
     PlatformErrorCode::Linux(err.raw_os_error().unwrap_or(0))
 }
 
+#[cfg(test)]
 fn rtnetlink_error_code(err: &rtnetlink::Error) -> PlatformErrorCode {
     match err {
         rtnetlink::Error::NetlinkError(message) => {
@@ -105,11 +110,8 @@ fn rtnetlink_error_code(err: &rtnetlink::Error) -> PlatformErrorCode {
 /// Maps an `RTM_NEWNEIGH`/`RTM_DELNEIGH` Netlink failure to a semantic
 /// [`Error`], per ADR-0001's static-neighbor mutation contract.
 ///
-/// Unlike [`rtnetlink_error_code`] (used by the address/route/interface
-/// mutators, which deliberately pass the raw errno through as
-/// `Error::Platform` — see
-/// `rtnetlink_error_code_passes_through_raw_errno_without_semantic_mapping`),
-/// `NeighborMutator` requires a caller-facing distinction between "already
+/// Unlike the address/route/interface mutators, which pass the raw errno
+/// through as `Error::Platform`, `NeighborMutator` distinguishes "already
 /// exists", "no such destination/interface", and "permission denied" so a
 /// plan-level compensator can react to the specific failure ADR-0001 calls
 /// out. `EEXIST` (`errno` 17) maps to [`Error::AlreadyExists`]; `ENOENT`
@@ -118,15 +120,12 @@ fn rtnetlink_error_code(err: &rtnetlink::Error) -> PlatformErrorCode {
 /// map to [`Error::PermissionDenied`]. Any other Netlink error, or a
 /// non-`NetlinkError` transport failure, falls back to `Error::Platform`
 /// with the raw code, matching every other mutator in this backend.
-fn neighbor_mutation_error(err: rtnetlink::Error) -> Error {
-    match &err {
-        rtnetlink::Error::NetlinkError(message) => match message.code.map(i32::from) {
-            Some(-17) => Error::AlreadyExists,
-            Some(-2) | Some(-19) => Error::NotFound,
-            Some(-1) | Some(-13) => Error::PermissionDenied,
-            _ => Error::Platform(rtnetlink_error_code(&err)),
-        },
-        _ => Error::Platform(rtnetlink_error_code(&err)),
+fn neighbor_mutation_error(err: Error) -> Error {
+    match err {
+        Error::Platform(PlatformErrorCode::Linux(-17)) => Error::AlreadyExists,
+        Error::Platform(PlatformErrorCode::Linux(-2 | -19)) => Error::NotFound,
+        Error::Platform(PlatformErrorCode::Linux(-1 | -13)) => Error::PermissionDenied,
+        _ => err,
     }
 }
 
@@ -714,12 +713,25 @@ fn static_neighbor_del_message(interface_index: u32, destination: IpAddr) -> Nei
     message
 }
 
+fn static_neighbor_add_message(
+    interface_index: u32,
+    destination: IpAddr,
+    mac: [u8; 6],
+) -> NeighbourMessage {
+    let mut message = static_neighbor_del_message(interface_index, destination);
+    message.header.state = RtNeighbourState::Permanent;
+    message.header.kind = rtnetlink::packet_route::route::RouteType::Unspec;
+    message
+        .attributes
+        .push(NeighbourAttribute::LinkLayerAddress(mac.to_vec()));
+    message
+}
+
 impl NeighborMutator for LinuxBackend {
     type StaticNeighbor = StaticNeighbor;
     type NeighborEntry = NeighborEntry;
 
-    /// Submits `RTM_NEWNEIGH` with `NUD_PERMANENT` and `NDA_LLADDR` via
-    /// `rtnetlink 0.21`'s `neighbours().add(index, destination)` builder,
+    /// Submits `RTM_NEWNEIGH` with `NUD_PERMANENT` and `NDA_LLADDR`,
     /// then re-reads the neighbor table so the returned entry reflects what
     /// the kernel now actually holds (`ReadAfterWrite`, per ADR-0001) rather
     /// than a synthesized guess. `EEXIST` maps to [`Error::AlreadyExists`],
@@ -732,15 +744,15 @@ impl NeighborMutator for LinuxBackend {
         let destination = ip_address_to_std(neighbor.address);
         let mac = neighbor.mac.octets();
 
-        self.runtime.block_on(async {
-            self.handle
-                .neighbours()
-                .add(interface_index, destination)
-                .link_layer_address(&mac)
-                .execute()
-                .await
-                .map_err(neighbor_mutation_error)
-        })?;
+        let message = static_neighbor_add_message(interface_index, destination, mac);
+        self.dump
+            .lock()
+            .map_err(|_| Error::InvalidState)?
+            .change(
+                RouteNetlinkMessage::NewNeighbour(message),
+                rtnetlink::packet_core::NLM_F_CREATE | rtnetlink::packet_core::NLM_F_EXCL,
+            )
+            .map_err(neighbor_mutation_error)?;
 
         self.neighbors()?
             .into_iter()
@@ -776,14 +788,11 @@ impl NeighborMutator for LinuxBackend {
         let destination = ip_address_to_std(neighbor.address);
         let message = static_neighbor_del_message(interface_index, destination);
 
-        self.runtime.block_on(async {
-            self.handle
-                .neighbours()
-                .del(message)
-                .execute()
-                .await
-                .map_err(neighbor_mutation_error)
-        })
+        self.dump
+            .lock()
+            .map_err(|_| Error::InvalidState)?
+            .change(RouteNetlinkMessage::DelNeighbour(message), 0)
+            .map_err(neighbor_mutation_error)
     }
 }
 
@@ -1074,35 +1083,6 @@ mod tests {
     use net_lattice_ip::{Ipv4Address, Ipv4Network, Ipv4PrefixLength};
     use rtnetlink::LinkDummy;
     use std::sync::{Mutex, MutexGuard, OnceLock};
-
-    /// Builds the same `ndmsg` payload shape that
-    /// `impl NeighborMutator for LinuxBackend`'s `add_static_neighbor`
-    /// produces via `rtnetlink 0.21`'s `neighbours().add(index,
-    /// destination).link_layer_address(...)` builder. Reconstructed here
-    /// (rather than calling `NeighbourAddRequest` directly, whose
-    /// constructor is `pub(crate)` inside `rtnetlink`) so this deterministic
-    /// test can assert the exact wire shape without a live Netlink socket.
-    fn static_neighbour_add_fixture(
-        interface_index: u32,
-        destination: IpAddr,
-        mac: [u8; 6],
-    ) -> NeighbourMessage {
-        let mut message = NeighbourMessage::default();
-        message.header.family = match destination {
-            IpAddr::V4(_) => rtnetlink::packet_route::AddressFamily::Inet,
-            IpAddr::V6(_) => rtnetlink::packet_route::AddressFamily::Inet6,
-        };
-        message.header.ifindex = interface_index;
-        message.header.state = RtNeighbourState::Permanent;
-        message.attributes = vec![
-            NeighbourAttribute::Destination(match destination {
-                IpAddr::V4(address) => NeighbourAddress::Inet(address),
-                IpAddr::V6(address) => NeighbourAddress::Inet6(address),
-            }),
-            NeighbourAttribute::LinkLayerAddress(mac.to_vec()),
-        ];
-        message
-    }
 
     #[cfg(feature = "async")]
     fn async_route_event(watcher: &mut AsyncEventReceiver<Event>, id: RouteId) -> bool {
@@ -1567,7 +1547,7 @@ mod tests {
 
     #[test]
     fn static_neighbour_add_fixtures_preserve_ipv4_arp_and_ipv6_ndp_abi_fields() {
-        let ipv4 = static_neighbour_add_fixture(
+        let ipv4 = static_neighbor_add_message(
             7,
             IpAddr::V4(std::net::Ipv4Addr::new(192, 0, 2, 17)),
             [0, 1, 2, 3, 4, 5],
@@ -1588,7 +1568,7 @@ mod tests {
             ]
         );
 
-        let ipv6 = static_neighbour_add_fixture(
+        let ipv6 = static_neighbor_add_message(
             9,
             IpAddr::V6("2001:db8:0:17::1".parse().expect("valid IPv6 NDP address")),
             [2, 0, 0, 0, 0, 0x17],
@@ -1671,10 +1651,8 @@ mod tests {
         assert_eq!(rtnetlink_error_code(&eacces), PlatformErrorCode::Linux(-13));
     }
 
-    fn netlink_error_with_code(code: i32) -> rtnetlink::Error {
-        let mut message = rtnetlink::packet_core::ErrorMessage::default();
-        message.code = std::num::NonZeroI32::new(code);
-        rtnetlink::Error::NetlinkError(message)
+    fn netlink_error_with_code(code: i32) -> Error {
+        Error::Platform(PlatformErrorCode::Linux(code))
     }
 
     #[test]
