@@ -48,9 +48,10 @@ The crate compiles to an empty library on any target other than Linux. The
 `async` feature enables native async event delivery (and
 `net-lattice-platform/async`).
 The current backend also creates an internal Tokio runtime for Netlink
-operations even without the `async` feature. Interface inspection uses a
-separate synchronous Netlink dump socket; other operations still use the
-internal runtime. The async event channel itself is executor-independent.
+operations even without the `async` feature. Interface, address, and neighbor
+inspection use a separate synchronous Netlink dump socket; other Netlink
+operations still use the internal runtime. The async event channel itself is
+executor-independent.
 
 ## 📦 Installation
 

@@ -188,18 +188,16 @@ impl AddressProvider for LinuxBackend {
     type InterfaceAddress = InterfaceAddress;
 
     fn addresses(&self) -> Result<Vec<Self::InterfaceAddress>> {
-        self.runtime.block_on(async {
-            let mut messages = self.handle.address().get().execute();
-            let mut addresses = Vec::new();
-            while let Some(message) = messages
-                .try_next()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))?
-            {
-                addresses.extend(message_to_interface_address(&message));
-            }
-            Ok(addresses)
-        })
+        let mut socket = self.dump.lock().map_err(|_| Error::InvalidState)?;
+        let messages = socket.dump(RouteNetlinkMessage::GetAddress(AddressMessage::default()))?;
+        let mut addresses = Vec::new();
+        for message in messages {
+            let RouteNetlinkMessage::NewAddress(address) = message else {
+                return Err(Error::Platform(PlatformErrorCode::Linux(0)));
+            };
+            addresses.extend(message_to_interface_address(&address));
+        }
+        Ok(addresses)
     }
 }
 
@@ -564,13 +562,13 @@ impl InterfaceProvider for LinuxBackend {
     fn interfaces(&self) -> Result<Vec<Self::Interface>> {
         let mut socket = self.dump.lock().map_err(|_| Error::InvalidState)?;
         let messages = socket.dump(RouteNetlinkMessage::GetLink(LinkMessage::default()))?;
-        Ok(messages
+        messages
             .into_iter()
-            .filter_map(|message| match message {
-                RouteNetlinkMessage::NewLink(link) => Some(message_to_interface(&link)),
-                _ => None,
+            .map(|message| match message {
+                RouteNetlinkMessage::NewLink(link) => Ok(message_to_interface(&link)),
+                _ => Err(Error::Platform(PlatformErrorCode::Linux(0))),
             })
-            .collect())
+            .collect()
     }
 }
 
@@ -704,18 +702,18 @@ impl NeighborProvider for LinuxBackend {
     type NeighborEntry = NeighborEntry;
 
     fn neighbors(&self) -> Result<Vec<Self::NeighborEntry>> {
-        self.runtime.block_on(async {
-            let mut messages = self.handle.neighbours().get().execute();
-            let mut neighbors = Vec::new();
-            while let Some(message) = messages
-                .try_next()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))?
-            {
-                neighbors.extend(message_to_neighbor(&message));
-            }
-            Ok(neighbors)
-        })
+        let mut socket = self.dump.lock().map_err(|_| Error::InvalidState)?;
+        let messages = socket.dump(RouteNetlinkMessage::GetNeighbour(
+            NeighbourMessage::default(),
+        ))?;
+        let mut neighbors = Vec::new();
+        for message in messages {
+            let RouteNetlinkMessage::NewNeighbour(neighbor) = message else {
+                return Err(Error::Platform(PlatformErrorCode::Linux(0)));
+            };
+            neighbors.extend(message_to_neighbor(&neighbor));
+        }
+        Ok(neighbors)
     }
 }
 
@@ -1237,7 +1235,7 @@ mod tests {
     }
 
     #[test]
-    fn interfaces_can_be_read_inside_a_runtime() {
+    fn interface_address_and_neighbor_reads_work_inside_a_runtime() {
         let _guard = kernel_test_guard();
         let backend = LinuxBackend::new().expect("open backend");
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1251,6 +1249,8 @@ mod tests {
                     .iter()
                     .any(|iface| iface.name == "lo")
             );
+            backend.addresses().expect("read addresses");
+            backend.neighbors().expect("read neighbors");
         });
     }
 
