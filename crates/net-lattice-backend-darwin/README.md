@@ -102,8 +102,9 @@ Always re-read observed state after a change signal.
   configuration writes the real system interface and can apply MTU and
   administrative state independently.
 - Static-neighbor remove reads the target first and refuses to delete a
-  present entry that is not currently `Permanent`, so a dynamically learned
-  ARP/NDP cache entry is never removed by a static-removal request.
+  present entry that is not observed as `Permanent`. The check and deletion
+  are separate calls, so a concurrent replacement can change the entry
+  between them.
 - Firewall policy replacement requires root. It is confined to the
   `net_lattice` anchor and never reads or writes rules configured by other
   tools (e.g. `pfctl` run by hand against a different anchor).

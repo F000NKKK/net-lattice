@@ -303,7 +303,9 @@ See the `declarative_diff` example for a read-only diff walkthrough and the
   observed state, and a MAC address is required) and returns the resulting
   observed `NeighborEntry`; check `Capability::NEIGHBOR_MUTATION` first.
   Removing a present but non-`Permanent` (dynamically learned) entry is
-  refused with `Error::InvalidState` rather than silently evicting it.
+  refused with `Error::InvalidState` when observed during the precheck. The
+  precheck and deletion are separate operations, so concurrent replacement
+  can change the entry between them.
 - **Static neighbor mutation is not monitoring.** It is a request/response
   native call (`RTM_NEWNEIGH`/`RTM_DELNEIGH`,
   `CreateIpNetEntry2`/`DeleteIpNetEntry2`, `PF_ROUTE`'s `RTM_ADD`), not an

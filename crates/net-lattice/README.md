@@ -106,7 +106,8 @@ fails, the whole call fails and returns no partial state.
   `NeighborState` and requires a MAC. Check `NEIGHBOR_MUTATION`; an add
   returns the entry read back from the OS. Removing a present but
   non-`Permanent` (dynamically learned) entry fails with
-  `Error::InvalidState` instead of evicting it.
+  `Error::InvalidState`. The check and deletion are separate operations, so
+  an entry can change between them.
 - **Plans**: `MutationPlan` is data. `execute_plan` takes one
   `ExecutionOptions` whose callbacks cancel, snapshot, and compensate; the
   report keeps plan indices and separates validation, snapshot, execution,

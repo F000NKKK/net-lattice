@@ -1926,8 +1926,9 @@ impl NeighborMutator for DarwinBackend {
     /// [`NeighborProvider::neighbors`] that a matching `(interface_id,
     /// address)` entry currently exists and is `NeighborState::Permanent`
     /// (`ensure_removable_static_neighbor_state`) — the safety property
-    /// ADR-0001 exists for: a present but dynamically learned (non-permanent)
-    /// ARP/NDP cache entry is never deleted by this call. A missing target
+    /// ADR-0001 exists for: an entry observed as dynamically learned is
+    /// refused. The check and deletion are separate kernel operations, so
+    /// another actor can replace the entry between them. A missing target
     /// returns [`Error::NotFound`]; a present but non-permanent target
     /// returns [`Error::InvalidState`].
     ///

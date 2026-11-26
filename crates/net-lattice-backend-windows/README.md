@@ -101,9 +101,9 @@ fn main() -> net_lattice_core::Result<()> {
   explicit compensation where needed.
 - Static-neighbor add re-reads the neighbor table after a successful
   `CreateIpNetEntry2`, so callers observe what the kernel actually holds.
-  Remove reads the target first and refuses to delete a present entry that
-  is not currently `Permanent`, so a dynamically learned ARP/NDP entry is
-  never removed by a static-removal request.
+  Remove reads the target first and refuses an entry that is not observed
+  as `Permanent`. The check and deletion are separate calls, so
+  a concurrent replacement can change the entry between them.
 - Firewall policy replacement requires Administrator. It is confined to
   filters owned by this crate's own WFP provider GUID and never reads or
   writes Windows Firewall's rules or another application's WFP state.

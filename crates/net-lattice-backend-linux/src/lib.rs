@@ -786,8 +786,9 @@ impl NeighborMutator for LinuxBackend {
     /// confirming through [`NeighborProvider::neighbors`] that a matching
     /// `(interface_id, address)` entry currently exists and is
     /// `NeighborState::Permanent`. This is the safety property ADR-0001
-    /// exists for: a present but dynamically learned (non-permanent)
-    /// ARP/NDP cache entry is never deleted by this call. A missing target
+    /// exists for: an entry observed as dynamically learned is refused.
+    /// The check and deletion are separate kernel operations, so another
+    /// actor can replace the entry between them. A missing target
     /// returns [`Error::NotFound`]; a present but non-permanent target
     /// returns [`Error::InvalidState`].
     fn remove_static_neighbor(&self, neighbor: Self::StaticNeighbor) -> Result<()> {

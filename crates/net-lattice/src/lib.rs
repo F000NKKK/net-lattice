@@ -632,6 +632,8 @@ impl<B: LatticeBackend> Lattice<B> {
     /// [`Error::InvalidState`]. Prefer [`Self::execute_plan`] with
     /// [`Mutation::RemoveStaticNeighbor`] for capability/precondition checks
     /// and compensation support.
+    /// The state check and native deletion are separate operations; concurrent
+    /// changes may replace the entry between them.
     pub fn remove_static_neighbor(&self, neighbor: StaticNeighbor) -> Result<()> {
         self.backend.remove_static_neighbor(neighbor)
     }

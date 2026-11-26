@@ -101,7 +101,8 @@ crate itself is not kill-switch specific). It applies the policy only when
   restoration is required.
 - Removing a static neighbor first re-reads the neighbor table and refuses
   to delete a present but dynamically learned (non-`Permanent`) entry,
-  returning `InvalidState`.
+  returning `InvalidState`. The check and deletion are separate calls, so a
+  concurrent replacement can change the entry between them.
 - Firewall replacement is confined to the one Net-Lattice-owned nftables
   table and never reads or writes firewall state configured by other tools.
 - Privileged tests are ignored in ordinary runs and restore the observed
