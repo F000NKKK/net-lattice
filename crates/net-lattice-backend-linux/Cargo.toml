@@ -21,11 +21,14 @@ net-lattice-ip = { workspace = true }
 net-lattice-model = { workspace = true }
 net-lattice-platform = { workspace = true }
 
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-futures = { workspace = true }
-
 rtnetlink = { workspace = true }
 netlink-sys = { version = "0.9", default-features = false }
 libc = { workspace = true }
 nftnl = { workspace = true }
 mnl = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+futures = { workspace = true }
+rtnetlink = { workspace = true, features = ["tokio_socket"] }
+async-io = "2.6"

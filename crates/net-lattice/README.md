@@ -70,8 +70,7 @@ net-lattice = "1.1"
 On Linux, building needs the `libmnl` and `libnftnl` development packages
 (for example `apt-get install libmnl-dev libnftnl-dev`).
 The async event transport can be polled by any executor and does not depend
-on Tokio. The Linux backend still creates an internal Tokio runtime for
-Netlink operations.
+on Tokio. Linux Netlink operations do not create an async runtime.
 
 ## 🎓 Quick Start
 

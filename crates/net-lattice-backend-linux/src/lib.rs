@@ -13,7 +13,6 @@
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 
-use futures::StreamExt;
 #[cfg(test)]
 use futures::TryStreamExt;
 use net_lattice_core::{Error, Id, PlatformErrorCode, Result};
@@ -43,34 +42,25 @@ use rtnetlink::packet_route::neighbour::{
     NeighbourAddress, NeighbourAttribute, NeighbourMessage, NeighbourState as RtNeighbourState,
 };
 use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteMessage};
-use rtnetlink::{AddressMessageBuilder, MulticastGroup, RouteMessageBuilder};
+use rtnetlink::{AddressMessageBuilder, RouteMessageBuilder};
 
 mod firewall;
+mod monitor;
 mod netlink_dump;
 
 /// The Linux Netlink-backed implementation of Net Lattice's provider traits.
 pub struct LinuxBackend {
+    #[cfg(test)]
     runtime: tokio::runtime::Runtime,
     #[cfg(test)]
     handle: Handle,
     dump: std::sync::Mutex<netlink_dump::DumpSocket>,
 }
 
-struct LinuxWatch {
-    connection: tokio::task::JoinHandle<()>,
-    events: tokio::task::JoinHandle<()>,
-}
-
-impl Drop for LinuxWatch {
-    fn drop(&mut self) {
-        self.events.abort();
-        self.connection.abort();
-    }
-}
-
 impl LinuxBackend {
-    /// Connects to the kernel over Netlink and creates the monitoring runtime.
+    /// Connects to the kernel over Netlink in the current network namespace.
     pub fn new() -> Result<Self> {
+        #[cfg(test)]
         let runtime =
             tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;
         // The native test fixtures still use rtnetlink to manage disposable
@@ -85,6 +75,7 @@ impl LinuxBackend {
         };
         let dump = std::sync::Mutex::new(netlink_dump::DumpSocket::open()?);
         Ok(Self {
+            #[cfg(test)]
             runtime,
             #[cfg(test)]
             handle,
@@ -951,14 +942,8 @@ impl EventProvider for LinuxBackend {
     /// Opens a *second*, independent Netlink socket subscribed to the
     /// `RTNLGRP_LINK`/`RTNLGRP_NEIGH`/`RTNLGRP_IPV4_ROUTE`/
     /// `RTNLGRP_IPV6_ROUTE`/`RTNLGRP_IPV4_IFADDR`/`RTNLGRP_IPV6_IFADDR`
-    /// multicast groups (`rtnetlink::new_multicast_connection`, the same
-    /// mechanism `ip monitor` uses) — separate from `self.handle`'s socket,
-    /// which only ever sends request/reply traffic. Two background tasks
-    /// are spawned onto `self.runtime`: one drives the new socket's
-    /// connection (required for it to make progress at all, mirroring
-    /// `LinuxBackend::new`'s `connection` task), the other reads
-    /// unsolicited notifications off it and forwards mapped `Event`s into
-    /// the channel `EventReceiver` reads from.
+    /// multicast groups using a socket separate from control requests. One
+    /// background thread reads notifications until the receiver is dropped.
     ///
     /// DNS resolver configuration changes (`/etc/resolv.conf`) have no
     /// Netlink signal — see `Event`'s doc comment — so no `Event::Dns` is
@@ -967,36 +952,9 @@ impl EventProvider for LinuxBackend {
         self.watch_filtered(EventFilter::ALL)
     }
     fn watch_filtered(&self, filter: Self::EventFilter) -> Result<EventReceiver<Self::Event>> {
-        let groups = [
-            MulticastGroup::Link,
-            MulticastGroup::Neigh,
-            MulticastGroup::Ipv4Route,
-            MulticastGroup::Ipv6Route,
-            MulticastGroup::Ipv4Ifaddr,
-            MulticastGroup::Ipv6Ifaddr,
-        ];
-        let _guard = self.runtime.enter();
-        let (connection, _handle, mut messages) = rtnetlink::new_multicast_connection(&groups)
-            .map_err(|err| Error::Platform(io_error_code(&err)))?;
-        let connection = self.runtime.spawn(connection);
-
         let (sender, receiver) = EventReceiver::bounded();
-        let events = self.runtime.spawn(async move {
-            while let Some((message, _addr)) = messages.next().await {
-                let (_header, payload) = message.into_parts();
-                let rtnetlink::packet_core::NetlinkPayload::InnerMessage(inner) = payload else {
-                    continue;
-                };
-                if let Some(event) = route_netlink_message_to_event(inner)
-                    && filter.matches(event)
-                    && !sender.send(event, Event::resync_all())
-                {
-                    break;
-                }
-            }
-        });
-
-        Ok(receiver.with_subscription(LinuxWatch { connection, events }))
+        let watch = monitor::start(filter, monitor::Sink::Sync(sender))?;
+        Ok(receiver.with_subscription(watch))
     }
 }
 
@@ -1007,47 +965,20 @@ impl EventProvider for LinuxBackend {
 /// `watch_addition` request) are exactly correct here at zero extra code.
 impl AdditionProvider for LinuxBackend {}
 
-/// Native async monitoring uses the backend's Tokio reactor and Netlink
-/// multicast socket directly.
+/// Native async monitoring uses a Netlink multicast reader thread and an
+/// executor-independent event channel.
 ///
 /// Unlike `net_lattice_async::from_receiver`, this implementation does not
-/// place a blocking worker thread between the kernel notification source and
-/// the returned stream.
+/// place a second adapter thread between the native receiver and the stream.
 #[cfg(feature = "async")]
 impl AsyncEventProvider for LinuxBackend {
     type Event = Event;
     type EventFilter = EventFilter;
 
     fn watch_async(&self, filter: Self::EventFilter) -> Result<AsyncEventReceiver<Self::Event>> {
-        let groups = [
-            MulticastGroup::Link,
-            MulticastGroup::Neigh,
-            MulticastGroup::Ipv4Route,
-            MulticastGroup::Ipv6Route,
-            MulticastGroup::Ipv4Ifaddr,
-            MulticastGroup::Ipv6Ifaddr,
-        ];
-        let _guard = self.runtime.enter();
-        let (connection, _handle, mut messages) = rtnetlink::new_multicast_connection(&groups)
-            .map_err(|err| Error::Platform(io_error_code(&err)))?;
-        let connection = self.runtime.spawn(connection);
         let (sender, receiver) = AsyncEventReceiver::bounded();
-        let events = self.runtime.spawn(async move {
-            while let Some((message, _addr)) = messages.next().await {
-                let (_header, payload) = message.into_parts();
-                let rtnetlink::packet_core::NetlinkPayload::InnerMessage(inner) = payload else {
-                    continue;
-                };
-                if let Some(event) = route_netlink_message_to_event(inner)
-                    && filter.matches(event)
-                    && !sender.send(event, Event::resync_all)
-                {
-                    return;
-                }
-            }
-            let _ = sender.send_error(Error::Disconnected);
-        });
-        Ok(receiver.with_subscription(LinuxWatch { connection, events }))
+        let watch = monitor::start(filter, monitor::Sink::Async(sender))?;
+        Ok(receiver.with_subscription(watch))
     }
 }
 

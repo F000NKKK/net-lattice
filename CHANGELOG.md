@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receiver, sender and stream adapter use `AsyncEvent*`, `watch_async`, and
   `from_async_receiver` names. This renames the previous public API.
 - Linux interface, address, neighbor, and route inspection and mutation use
-  a synchronous Netlink socket; monitoring still uses the Tokio runtime.
+  a synchronous Netlink socket; monitoring uses a cancellable reader thread.
+  The Linux backend no longer depends on an async runtime in normal builds.
 
 ## [1.1.0] - 2026-11-18
 

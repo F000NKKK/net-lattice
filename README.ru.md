@@ -201,8 +201,7 @@ net-lattice = "1.1"
 
 `async` — единственная feature. Она добавляет watcher в виде
 `futures::Stream` и не выбирает async-runtime для вызывающего кода. Транспорт
-async-событий не зависит от Tokio; Linux backend по-прежнему создаёт
-внутренний Tokio runtime. На Linux для сборки также
+async-событий и Linux backend не зависят от Tokio. На Linux для сборки также
 нужны dev-пакеты `libmnl` и `libnftnl`; см. [настройку Linux](#linux).
 
 ## 🎓 Быстрый старт

@@ -191,8 +191,7 @@ net-lattice = "1.1"
 
 `async` is the only feature. It adds a `futures::Stream` watcher surface and
 does not select an async runtime for the caller. The async event transport
-does not depend on Tokio; the Linux backend still creates an internal Tokio
-runtime. On Linux, building also needs the `libmnl`
+and Linux backend do not depend on Tokio. On Linux, building also needs the `libmnl`
 and `libnftnl` development packages; see [Linux setup](#linux).
 
 ## 🎓 Quick Start

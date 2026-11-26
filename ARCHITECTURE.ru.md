@@ -565,8 +565,7 @@ runtime-агностичный: `watch() -> Result<EventReceiver<Event>>`.
 возможность использования из синхронного кода; сам контракт не определяет
 зависимости и внутреннюю модель исполнения backend'а.
 
-Синхронный контракт остаётся доступен без feature `async`, хотя Linux backend
-использует внутренний Tokio runtime. Этап 0.11
+Синхронный контракт остаётся доступен без feature `async`. Этап 0.11
 добавляет опциональную feature `async` в `net-lattice`: она реэкспортирует единый
 runtime-agnostic `net-lattice-async::EventStream` и добавляет
 `Lattice::watch_async(filter)`. `EventStream` реализует `futures::Stream`,
@@ -574,8 +573,8 @@ runtime-agnostic `net-lattice-async::EventStream` и добавляет
 вокруг `EventReceiver`: `std::sync::mpsc::Receiver` не может регистрировать
 waker. Отдельный async crate сохраняет явный worker-thread bridge для
 произвольного синхронного receiver, но фасад использует нативный путь каждого
-backend: Netlink опрашивается существующим Tokio runtime Linux, callbacks IP
-Helper Windows и reader PF_ROUTE macOS пишут в bounded channel, независимый
+backend: reader Netlink в Linux, callbacks IP Helper Windows и reader PF_ROUTE
+macOS пишут в bounded channel, независимый
 от executor. Все нативные async transports имеют ту же
 семантику bounded delivery и resynchronization, что и `EventReceiver`.
 

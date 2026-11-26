@@ -555,8 +555,7 @@ and runtime-agnostic: `watch() -> Result<EventReceiver<Event>>`.
 contract usable by synchronous programs; it does not by itself describe
 the dependencies or internal execution model of a backend.
 
-The synchronous contract remains available without the `async` feature. The
-Linux backend nevertheless uses an internal Tokio runtime. Stage
+The synchronous contract remains available without the `async` feature. Stage
 0.11 adds the optional `net-lattice` `async` feature, which re-exports the
 single runtime-agnostic `net-lattice-async::EventStream` and adds
 `Lattice::watch_async(filter)`. `EventStream` implements `futures::Stream`,
@@ -564,8 +563,8 @@ so applications remain free to choose an executor. This is not a zero-cost
 wrapper around `EventReceiver`: `std::sync::mpsc::Receiver` cannot register a
 waker. The separate async crate retains an explicit worker-thread bridge for
 an arbitrary synchronous receiver, but the facade uses each backend's native
-path: Netlink is polled by Linux's existing Tokio runtime, Windows IP Helper
-callbacks and the macOS PF_ROUTE reader thread write to a bounded,
+path: a Linux Netlink reader thread, Windows IP Helper callbacks, and the
+macOS PF_ROUTE reader thread write to a bounded,
 executor-independent channel. All native async transports use
 the same bounded delivery and resynchronization semantics as `EventReceiver`.
 
