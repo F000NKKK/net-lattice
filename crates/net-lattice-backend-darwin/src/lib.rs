@@ -36,7 +36,7 @@ use net_lattice_platform::{
     NeighborMutator, NeighborProvider, RouteMutator, RouteProvider, RouteReplaceOrder,
 };
 #[cfg(feature = "async")]
-use net_lattice_platform::{TokioEventProvider, TokioEventReceiver};
+use net_lattice_platform::{AsyncEventProvider, AsyncEventReceiver};
 
 mod firewall;
 
@@ -2298,16 +2298,16 @@ impl AdditionProvider for DarwinBackend {}
 /// Tokio transport consumed by the async facade; there is no intermediate
 /// synchronous `EventReceiver` or executor-blocking `recv` call.
 #[cfg(feature = "async")]
-impl TokioEventProvider for DarwinBackend {
+impl AsyncEventProvider for DarwinBackend {
     type Event = Event;
     type EventFilter = EventFilter;
 
-    fn watch_tokio(&self, filter: Self::EventFilter) -> Result<TokioEventReceiver<Self::Event>> {
+    fn watch_async(&self, filter: Self::EventFilter) -> Result<AsyncEventReceiver<Self::Event>> {
         let fd = unsafe { libc::socket(libc::PF_ROUTE, libc::SOCK_RAW, libc::AF_UNSPEC) };
         if fd < 0 {
             return Err(Error::Platform(io_error_code(&io::Error::last_os_error())));
         }
-        let (sender, receiver) = TokioEventReceiver::bounded();
+        let (sender, receiver) = AsyncEventReceiver::bounded();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
         let thread = thread::spawn(move || {
@@ -2417,7 +2417,7 @@ mod tests {
     }
 
     #[cfg(feature = "async")]
-    fn tokio_route_event(watcher: &mut TokioEventReceiver<Event>, id: RouteId) -> bool {
+    fn async_route_event(watcher: &mut AsyncEventReceiver<Event>, id: RouteId) -> bool {
         use std::pin::Pin;
         use std::task::{Context, Poll, Waker};
         use std::time::Duration;
@@ -3533,10 +3533,10 @@ mod tests {
 
     #[cfg(feature = "async")]
     #[test]
-    fn watch_tokio_opens_a_real_route_socket() {
+    fn watch_async_opens_a_real_route_socket() {
         let backend = DarwinBackend::new().expect("failed to open a route socket");
         let watcher = backend
-            .watch_tokio(EventFilter::none())
+            .watch_async(EventFilter::none())
             .expect("failed to subscribe to PF_ROUTE");
         drop(watcher);
     }
@@ -4051,7 +4051,7 @@ mod tests {
         let watcher = backend.watch().expect("failed to open PF_ROUTE watcher");
         #[cfg(feature = "async")]
         let mut async_watcher = backend
-            .watch_tokio(EventFilter::none().routes())
+            .watch_async(EventFilter::none().routes())
             .expect("failed to open async PF_ROUTE watcher");
         let interface_index = loopback_interface_index(&backend);
         let destination = Network::from(Ipv4Network::new(
@@ -4074,13 +4074,13 @@ mod tests {
             )
         });
         #[cfg(feature = "async")]
-        let async_observed = tokio_route_event(&mut async_watcher, watched_id);
+        let async_observed = async_route_event(&mut async_watcher, watched_id);
         let selected_watcher = backend
             .watch_filtered(EventFilter::none().route(watched_id))
             .expect("failed to open selected PF_ROUTE watcher");
         #[cfg(feature = "async")]
         let mut selected_async_watcher = backend
-            .watch_tokio(EventFilter::none().route(watched_id))
+            .watch_async(EventFilter::none().route(watched_id))
             .expect("failed to open selected async PF_ROUTE watcher");
         let _ = backend.remove_route(route);
         let selected_observed = (0..12).any(|_| {
@@ -4090,7 +4090,7 @@ mod tests {
             )
         });
         #[cfg(feature = "async")]
-        let selected_async_observed = tokio_route_event(&mut selected_async_watcher, watched_id);
+        let selected_async_observed = async_route_event(&mut selected_async_watcher, watched_id);
         assert!(observed, "watch() did not report the route mutation");
         assert!(
             selected_observed,
@@ -4099,7 +4099,7 @@ mod tests {
         #[cfg(feature = "async")]
         assert!(
             async_observed,
-            "watch_tokio() did not report the route mutation"
+            "watch_async() did not report the route mutation"
         );
         #[cfg(feature = "async")]
         assert!(

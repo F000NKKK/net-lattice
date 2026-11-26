@@ -13,10 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   synchronous route and neighbor operations.
 - The Windows backend no longer creates an internal Tokio runtime for its
   synchronous IP Helper operations.
-- The optional native event channel no longer depends on Tokio. Its existing
-  public type and trait names remain available for compatibility.
-- Added runtime-neutral `AsyncEvent*` names and `watch_async` for backend
-  integration, plus `from_async_receiver` for stream adaptation.
+- The optional native event channel no longer depends on Tokio. Its provider,
+  receiver, sender and stream adapter use `AsyncEvent*`, `watch_async`, and
+  `from_async_receiver` names. This renames the previous public API.
 
 ## [1.1.0] - 2026-11-18
 

@@ -16,7 +16,7 @@ use net_lattice_core::Result;
 /// counterparts use `EventSender`: when the consumer falls behind, one
 /// resynchronization event is scheduled instead of allowing unbounded memory
 /// growth.
-pub struct TokioEventSender<E> {
+pub struct AsyncEventSender<E> {
     state: Arc<Mutex<Channel<E>>>,
     resync_pending: Arc<AtomicBool>,
     terminal_error: Arc<Mutex<Option<net_lattice_core::Error>>>,
@@ -26,7 +26,7 @@ pub struct TokioEventSender<E> {
 ///
 /// The subscription is dropped with the receiver, cancelling platform handles,
 /// tasks, or reader threads before their callback state can be freed.
-pub struct TokioEventReceiver<E> {
+pub struct AsyncEventReceiver<E> {
     state: Arc<Mutex<Channel<E>>>,
     subscription: Option<Box<dyn Any + Send>>,
     terminal_error: Arc<Mutex<Option<net_lattice_core::Error>>>,
@@ -39,9 +39,9 @@ struct Channel<E> {
     waker: Option<Waker>,
 }
 
-impl<E> TokioEventReceiver<E> {
+impl<E> AsyncEventReceiver<E> {
     /// Creates a bounded transport using the same capacity as `EventReceiver`.
-    pub fn bounded() -> (TokioEventSender<E>, Self) {
+    pub fn bounded() -> (AsyncEventSender<E>, Self) {
         let state = Arc::new(Mutex::new(Channel {
             queue: VecDeque::new(),
             sender_alive: true,
@@ -51,7 +51,7 @@ impl<E> TokioEventReceiver<E> {
         let pending = Arc::new(AtomicBool::new(false));
         let terminal_error = Arc::new(Mutex::new(None));
         (
-            TokioEventSender {
+            AsyncEventSender {
                 state: Arc::clone(&state),
                 resync_pending: pending,
                 terminal_error: Arc::clone(&terminal_error),
@@ -87,14 +87,14 @@ impl<E> TokioEventReceiver<E> {
         Poll::Ready(
             self.terminal_error
                 .lock()
-                .expect("Tokio event sender poisoned")
+                .expect("async event sender poisoned")
                 .take()
                 .map(Err),
         )
     }
 }
 
-impl<E> TokioEventSender<E> {
+impl<E> AsyncEventSender<E> {
     /// Attempts to enqueue an event without waiting for queue capacity.
     pub fn send(&self, event: E, resync: impl FnOnce() -> E) -> bool {
         let resync = self
@@ -138,12 +138,12 @@ impl<E> TokioEventSender<E> {
         *self
             .terminal_error
             .lock()
-            .expect("Tokio event sender poisoned") = Some(error);
+            .expect("async event sender poisoned") = Some(error);
         true
     }
 }
 
-impl<E> Drop for TokioEventSender<E> {
+impl<E> Drop for AsyncEventSender<E> {
     fn drop(&mut self) {
         let mut state = self.state.lock().expect("event channel poisoned");
         state.sender_alive = false;
@@ -155,7 +155,7 @@ impl<E> Drop for TokioEventSender<E> {
     }
 }
 
-impl<E> Drop for TokioEventReceiver<E> {
+impl<E> Drop for AsyncEventReceiver<E> {
     fn drop(&mut self) {
         self.state
             .lock()
@@ -183,7 +183,7 @@ mod tests {
         }
     }
 
-    fn poll<E>(receiver: &mut TokioEventReceiver<E>) -> Poll<Option<Result<E>>> {
+    fn poll<E>(receiver: &mut AsyncEventReceiver<E>) -> Poll<Option<Result<E>>> {
         let waker = std::task::Waker::noop();
         let mut context = Context::from_waker(waker);
         Pin::new(receiver).poll_recv(&mut context)
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn overflow_delivers_resync_before_a_later_event() {
-        let (sender, mut receiver) = TokioEventReceiver::bounded();
+        let (sender, mut receiver) = AsyncEventReceiver::bounded();
         for event in 0..EventReceiverCapacity::VALUE {
             assert!(sender.send(event, || 999));
         }
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn terminal_error_survives_a_full_queue() {
-        let (sender, mut receiver) = TokioEventReceiver::bounded();
+        let (sender, mut receiver) = AsyncEventReceiver::bounded();
         for event in 0..EventReceiverCapacity::VALUE {
             assert!(sender.send(event, || 999));
         }
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn terminal_error_is_returned_after_channel_closes() {
-        let (sender, mut receiver) = TokioEventReceiver::<u32>::bounded();
+        let (sender, mut receiver) = AsyncEventReceiver::<u32>::bounded();
         assert!(sender.send_error(net_lattice_core::Error::InvalidState));
         drop(sender);
         let observed = format!("{:?}", poll(&mut receiver));
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn subscription_is_dropped_and_closed_consumer_is_reported() {
         let drops = Arc::new(AtomicUsize::new(0));
-        let (sender, receiver) = TokioEventReceiver::<u32>::bounded();
+        let (sender, receiver) = AsyncEventReceiver::<u32>::bounded();
         drop(receiver.with_subscription(DropGuard(Arc::clone(&drops))));
         assert_eq!(drops.load(Ordering::SeqCst), 1);
         assert!(!sender.send(1, || 0));
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn closed_consumer_is_reported_while_a_resync_is_pending() {
-        let (sender, receiver) = TokioEventReceiver::bounded();
+        let (sender, receiver) = AsyncEventReceiver::bounded();
         for event in 0..EventReceiverCapacity::VALUE {
             assert!(sender.send(event, || 999));
         }
@@ -254,26 +254,26 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Tokio event sender poisoned")]
-    fn poisoned_tokio_terminal_error_mutex_is_reported() {
-        let (sender, _receiver) = TokioEventReceiver::<u32>::bounded();
+    #[should_panic(expected = "async event sender poisoned")]
+    fn poisoned_async_terminal_error_mutex_is_reported() {
+        let (sender, _receiver) = AsyncEventReceiver::<u32>::bounded();
         let terminal_error = Arc::clone(&sender.terminal_error);
         let _ = std::thread::spawn(move || {
             let _guard = terminal_error.lock().unwrap();
-            panic!("poison Tokio terminal error");
+            panic!("poison async terminal error");
         })
         .join();
         let _ = sender.send_error(net_lattice_core::Error::InvalidState);
     }
 
     #[test]
-    #[should_panic(expected = "Tokio event sender poisoned")]
-    fn poisoned_tokio_receiver_mutex_is_reported() {
-        let (sender, mut receiver) = TokioEventReceiver::<u32>::bounded();
+    #[should_panic(expected = "async event sender poisoned")]
+    fn poisoned_async_receiver_mutex_is_reported() {
+        let (sender, mut receiver) = AsyncEventReceiver::<u32>::bounded();
         let terminal_error = Arc::clone(&receiver.terminal_error);
         let _ = std::thread::spawn(move || {
             let _guard = terminal_error.lock().unwrap();
-            panic!("poison Tokio receiver");
+            panic!("poison async receiver");
         })
         .join();
         drop(sender);
@@ -281,8 +281,8 @@ mod tests {
     }
 
     #[test]
-    fn pending_resync_stays_pending_while_the_tokio_channel_is_full() {
-        let (sender, _receiver) = TokioEventReceiver::bounded();
+    fn pending_resync_stays_pending_while_the_async_channel_is_full() {
+        let (sender, _receiver) = AsyncEventReceiver::bounded();
         for event in 0..EventReceiverCapacity::VALUE {
             assert!(sender.send(event, || 999));
         }
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn poll_recv_reports_pending_while_connected_and_empty() {
-        let (_sender, mut receiver) = TokioEventReceiver::<u32>::bounded();
+        let (_sender, mut receiver) = AsyncEventReceiver::<u32>::bounded();
         assert!(poll(&mut receiver).is_pending());
     }
 
@@ -307,7 +307,7 @@ mod tests {
         let counter = Arc::new(Counter(AtomicUsize::new(0)));
         let waker = std::task::Waker::from(Arc::clone(&counter));
         let mut cx = Context::from_waker(&waker);
-        let (sender, mut receiver) = TokioEventReceiver::bounded();
+        let (sender, mut receiver) = AsyncEventReceiver::bounded();
         assert!(Pin::new(&mut receiver).poll_recv(&mut cx).is_pending());
         assert!(sender.send(7, || 0));
         assert_eq!(counter.0.load(Ordering::SeqCst), 1);
@@ -325,7 +325,7 @@ mod tests {
     }
 
     fn exercise_sender_paths<E: Copy + Send + 'static>(event: E, resync: E) {
-        let (sender, mut receiver) = TokioEventReceiver::<E>::bounded();
+        let (sender, mut receiver) = AsyncEventReceiver::<E>::bounded();
         for _ in 0..EventReceiverCapacity::VALUE {
             assert!(sender.send(event, || resync));
         }
@@ -340,7 +340,7 @@ mod tests {
         drop(sender);
         assert!(poll(&mut receiver).is_ready());
 
-        let (sender, receiver) = TokioEventReceiver::<E>::bounded();
+        let (sender, receiver) = AsyncEventReceiver::<E>::bounded();
         drop(receiver);
         assert!(!sender.send(event, || resync));
         assert!(!sender.send_error(net_lattice_core::Error::InvalidState));

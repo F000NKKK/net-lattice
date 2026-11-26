@@ -31,7 +31,7 @@ use net_lattice_platform::{
     NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
 };
 #[cfg(feature = "async")]
-use net_lattice_platform::{TokioEventProvider, TokioEventReceiver};
+use net_lattice_platform::{AsyncEventProvider, AsyncEventReceiver};
 use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::address::{AddressAttribute, AddressMessage};
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkLayerType, LinkMessage, State};
@@ -1037,11 +1037,11 @@ impl AdditionProvider for LinuxBackend {}
 /// place a blocking worker thread between the kernel notification source and
 /// the returned stream.
 #[cfg(feature = "async")]
-impl TokioEventProvider for LinuxBackend {
+impl AsyncEventProvider for LinuxBackend {
     type Event = Event;
     type EventFilter = EventFilter;
 
-    fn watch_tokio(&self, filter: Self::EventFilter) -> Result<TokioEventReceiver<Self::Event>> {
+    fn watch_async(&self, filter: Self::EventFilter) -> Result<AsyncEventReceiver<Self::Event>> {
         let groups = [
             MulticastGroup::Link,
             MulticastGroup::Neigh,
@@ -1054,7 +1054,7 @@ impl TokioEventProvider for LinuxBackend {
         let (connection, _handle, mut messages) = rtnetlink::new_multicast_connection(&groups)
             .map_err(|err| Error::Platform(io_error_code(&err)))?;
         let connection = self.runtime.spawn(connection);
-        let (sender, receiver) = TokioEventReceiver::bounded();
+        let (sender, receiver) = AsyncEventReceiver::bounded();
         let events = self.runtime.spawn(async move {
             while let Some((message, _addr)) = messages.next().await {
                 let (_header, payload) = message.into_parts();
@@ -1137,7 +1137,7 @@ mod tests {
     }
 
     #[cfg(feature = "async")]
-    fn tokio_route_event(watcher: &mut TokioEventReceiver<Event>, id: RouteId) -> bool {
+    fn async_route_event(watcher: &mut AsyncEventReceiver<Event>, id: RouteId) -> bool {
         use std::pin::Pin;
         use std::task::{Context, Poll, Waker};
         use std::time::Duration;
@@ -1162,8 +1162,8 @@ mod tests {
     }
 
     #[cfg(feature = "async")]
-    fn tokio_address_event(
-        watcher: &mut TokioEventReceiver<Event>,
+    fn async_address_event(
+        watcher: &mut AsyncEventReceiver<Event>,
         id: InterfaceAddressId,
     ) -> bool {
         use std::pin::Pin;
@@ -1271,7 +1271,7 @@ mod tests {
             use std::pin::Pin;
             use std::task::{Context, Poll, Waker};
 
-            let (sender, mut receiver) = TokioEventReceiver::<Event>::bounded();
+            let (sender, mut receiver) = AsyncEventReceiver::<Event>::bounded();
             for _ in 0..256 {
                 assert!(sender.send(Event::resync_all(), Event::resync_all));
             }
@@ -1300,12 +1300,12 @@ mod tests {
                 Poll::Ready(None)
             ));
 
-            let (sender, receiver) = TokioEventReceiver::bounded();
+            let (sender, receiver) = AsyncEventReceiver::bounded();
             drop(receiver);
             assert!(!sender.send(Event::resync_all(), Event::resync_all));
             assert!(!sender.send_error(Error::Disconnected));
 
-            let (sender, mut receiver) = TokioEventReceiver::<Event>::bounded();
+            let (sender, mut receiver) = AsyncEventReceiver::<Event>::bounded();
             assert!(sender.send_error(Error::InvalidState));
             drop(sender);
             assert!(matches!(
@@ -1377,11 +1377,11 @@ mod tests {
     /// by `Lattice::watch_async`.
     #[cfg(feature = "async")]
     #[test]
-    fn watch_tokio_opens_a_real_netlink_subscription() {
+    fn watch_async_opens_a_real_netlink_subscription() {
         let _guard = kernel_test_guard();
         let backend = LinuxBackend::new().expect("failed to open a Netlink connection");
         let watcher = backend
-            .watch_tokio(EventFilter::none())
+            .watch_async(EventFilter::none())
             .expect("failed to subscribe to Netlink multicast groups");
         drop(watcher);
     }
@@ -2742,7 +2742,7 @@ mod tests {
             .expect("failed to subscribe to Netlink events");
         #[cfg(feature = "async")]
         let mut async_watcher = backend
-            .watch_tokio(EventFilter::none().routes())
+            .watch_async(EventFilter::none().routes())
             .expect("failed to subscribe to async Netlink events");
         let interface_index = loopback_interface_index(&backend);
         let destination = Network::from(Ipv4Network::new(
@@ -2769,13 +2769,13 @@ mod tests {
             .expect("watch() did not report the route addition");
         let observed = true;
         #[cfg(feature = "async")]
-        let async_observed = tokio_route_event(&mut async_watcher, watched_id);
+        let async_observed = async_route_event(&mut async_watcher, watched_id);
         let selected_watcher = backend
             .watch_filtered(EventFilter::none().route(watched_id))
             .expect("failed to subscribe to selected Netlink route events");
         #[cfg(feature = "async")]
         let mut selected_async_watcher = backend
-            .watch_tokio(EventFilter::none().route(watched_id))
+            .watch_async(EventFilter::none().route(watched_id))
             .expect("failed to subscribe to selected async Netlink route events");
         let _ = backend.remove_route(route);
         let selected_observed = (0..12).any(|_| {
@@ -2785,7 +2785,7 @@ mod tests {
             )
         });
         #[cfg(feature = "async")]
-        let selected_async_observed = tokio_route_event(&mut selected_async_watcher, watched_id);
+        let selected_async_observed = async_route_event(&mut selected_async_watcher, watched_id);
         assert!(observed, "watch() did not report the route mutation");
         assert!(
             selected_observed,
@@ -2794,7 +2794,7 @@ mod tests {
         #[cfg(feature = "async")]
         assert!(
             async_observed,
-            "watch_tokio() did not report the route mutation"
+            "watch_async() did not report the route mutation"
         );
         #[cfg(feature = "async")]
         assert!(
@@ -2805,7 +2805,7 @@ mod tests {
 
     /// IPv6 counterpart of `watch_observes_route_changes`: same end-to-end
     /// monitoring verification (plain `watcher.recv_timeout` and, with the
-    /// `async` feature, `watch_tokio`/`tokio_route_event`), but for an IPv6
+    /// `async` feature, `watch_async`/`async_route_event`), but for an IPv6
     /// route on RFC 3849 `2001:db8:8::/64` — distinct from every other IPv6
     /// subnet already reserved by the other ignored tests in this module
     /// (`2001:db8:1::/64`, `2001:db8:2::9/64`, `2001:db8::/32` plain) so
@@ -2823,7 +2823,7 @@ mod tests {
             .expect("failed to subscribe to Netlink events");
         #[cfg(feature = "async")]
         let mut async_watcher = backend
-            .watch_tokio(EventFilter::none().routes())
+            .watch_async(EventFilter::none().routes())
             .expect("failed to subscribe to async Netlink events");
         let interface_index = loopback_interface_index(&backend);
         let destination = Network::from(net_lattice_ip::Ipv6Network::new(
@@ -2850,13 +2850,13 @@ mod tests {
             .expect("watch() did not report the route addition");
         let observed = true;
         #[cfg(feature = "async")]
-        let async_observed = tokio_route_event(&mut async_watcher, watched_id);
+        let async_observed = async_route_event(&mut async_watcher, watched_id);
         let selected_watcher = backend
             .watch_filtered(EventFilter::none().route(watched_id))
             .expect("failed to subscribe to selected Netlink route events");
         #[cfg(feature = "async")]
         let mut selected_async_watcher = backend
-            .watch_tokio(EventFilter::none().route(watched_id))
+            .watch_async(EventFilter::none().route(watched_id))
             .expect("failed to subscribe to selected async Netlink route events");
         let _ = backend.remove_route(route);
         let selected_observed = (0..12).any(|_| {
@@ -2866,7 +2866,7 @@ mod tests {
             )
         });
         #[cfg(feature = "async")]
-        let selected_async_observed = tokio_route_event(&mut selected_async_watcher, watched_id);
+        let selected_async_observed = async_route_event(&mut selected_async_watcher, watched_id);
         assert!(observed, "watch() did not report the route mutation");
         assert!(
             selected_observed,
@@ -2875,7 +2875,7 @@ mod tests {
         #[cfg(feature = "async")]
         assert!(
             async_observed,
-            "watch_tokio() did not report the route mutation"
+            "watch_async() did not report the route mutation"
         );
         #[cfg(feature = "async")]
         assert!(
@@ -2886,7 +2886,7 @@ mod tests {
 
     /// Address-domain counterpart of `watch_observes_ipv6_route_changes`:
     /// same end-to-end monitoring verification (plain `watcher.recv_timeout`
-    /// and, with the `async` feature, `watch_tokio`/`tokio_address_event`),
+    /// and, with the `async` feature, `watch_async`/`async_address_event`),
     /// but for `Event::Address` driven by `add_address`/`remove_address` on
     /// an IPv6 address on RFC 3849 `2001:db8:a::9/64` — distinct from every
     /// other IPv6 subnet already reserved by the other ignored tests in this
@@ -2907,7 +2907,7 @@ mod tests {
             .expect("failed to subscribe to Netlink events");
         #[cfg(feature = "async")]
         let mut async_watcher = backend
-            .watch_tokio(EventFilter::none().addresses())
+            .watch_async(EventFilter::none().addresses())
             .expect("failed to subscribe to async Netlink events");
         let interface_index = loopback_interface_index(&backend);
         let network = Network::from(net_lattice_ip::Ipv6Network::new(
@@ -2942,13 +2942,13 @@ mod tests {
             .expect("watch() did not report the address addition");
         let observed = true;
         #[cfg(feature = "async")]
-        let async_observed = tokio_address_event(&mut async_watcher, watched_id);
+        let async_observed = async_address_event(&mut async_watcher, watched_id);
         let selected_watcher = backend
             .watch_filtered(EventFilter::none().address(watched_id))
             .expect("failed to subscribe to selected Netlink address events");
         #[cfg(feature = "async")]
         let mut selected_async_watcher = backend
-            .watch_tokio(EventFilter::none().address(watched_id))
+            .watch_async(EventFilter::none().address(watched_id))
             .expect("failed to subscribe to selected async Netlink address events");
         // remove_address matches by id, so the current observed record must
         // be re-read rather than reusing `requested` (which carries no id).
@@ -2966,7 +2966,7 @@ mod tests {
             )
         });
         #[cfg(feature = "async")]
-        let selected_async_observed = tokio_address_event(&mut selected_async_watcher, watched_id);
+        let selected_async_observed = async_address_event(&mut selected_async_watcher, watched_id);
         assert!(observed, "watch() did not report the address mutation");
         assert!(
             selected_observed,
@@ -2975,7 +2975,7 @@ mod tests {
         #[cfg(feature = "async")]
         assert!(
             async_observed,
-            "watch_tokio() did not report the address mutation"
+            "watch_async() did not report the address mutation"
         );
         #[cfg(feature = "async")]
         assert!(

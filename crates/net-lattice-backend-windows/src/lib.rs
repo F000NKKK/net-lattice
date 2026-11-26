@@ -35,7 +35,7 @@ use net_lattice_platform::{
     InterfaceProvider, NeighborMutator, NeighborProvider, RouteMutator, RouteProvider,
 };
 #[cfg(feature = "async")]
-use net_lattice_platform::{TokioEventProvider, TokioEventReceiver, TokioEventSender};
+use net_lattice_platform::{AsyncEventProvider, AsyncEventReceiver, AsyncEventSender};
 use windows::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_NOT_FOUND, ERROR_NOT_SUPPORTED, ERROR_OBJECT_ALREADY_EXISTS, HANDLE,
     WIN32_ERROR,
@@ -1228,7 +1228,7 @@ struct WindowsWatchState {
 
 #[cfg(feature = "async")]
 struct WindowsTokioWatchState {
-    sender: TokioEventSender<Event>,
+    sender: AsyncEventSender<Event>,
     filter: EventFilter,
 }
 
@@ -1264,7 +1264,7 @@ impl Drop for WindowsWatch {
 }
 
 /// Async counterpart to [`WindowsWatch`]. It owns the registration handles
-/// and callback state for as long as the Tokio receiver remains alive.
+/// and callback state for as long as the async receiver remains alive.
 #[cfg(feature = "async")]
 struct WindowsTokioWatch {
     state: *mut WindowsTokioWatchState,
@@ -1288,7 +1288,7 @@ impl Drop for WindowsTokioWatch {
     }
 }
 
-/// How long `watch_filtered`/`watch_tokio` block waiting for all three
+/// How long `watch_filtered`/`watch_async` block waiting for all three
 /// `MibInitialNotification` registration confirmations before treating the
 /// registration as failed. IP Helper's own documented mechanism (see
 /// [`RegistrationReadiness`]) fires this confirmation as soon as a
@@ -1303,7 +1303,7 @@ impl Drop for WindowsTokioWatch {
 const REGISTRATION_READY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Synthetic Windows-style error code used only when a `watch_filtered`/
-/// `watch_tokio` registration never receives all three documented
+/// `watch_async` registration never receives all three documented
 /// `MibInitialNotification` confirmations within [`REGISTRATION_READY_TIMEOUT`].
 /// This does not come from an actual IP Helper API return value — the
 /// registration calls themselves already reported success — so it is
@@ -1396,7 +1396,7 @@ impl RegistrationReadiness {
 /// Registration-readiness signals keyed by the raw `WindowsWatchState`/
 /// `WindowsTokioWatchState` pointer passed to IP Helper as the notification
 /// callback context (all three registrations in one `watch_filtered`/
-/// `watch_tokio` call share the same context pointer). A module-level map
+/// `watch_async` call share the same context pointer). A module-level map
 /// keyed by that pointer's address lets the `route_change_callback`/
 /// `interface_change_callback`/`address_change_callback` family (and their
 /// Tokio counterparts) signal readiness without adding a field to
@@ -1426,7 +1426,7 @@ fn register_readiness(
 
 /// Removes `context`'s readiness tracker once registration either succeeds
 /// or is abandoned, so the map does not grow unboundedly across repeated
-/// `watch_filtered`/`watch_tokio` calls.
+/// `watch_filtered`/`watch_async` calls.
 fn unregister_readiness(context: *const c_void) {
     REGISTRATION_READY
         .lock()
@@ -1440,7 +1440,7 @@ fn unregister_readiness(context: *const c_void) {
 /// an error: it means either registration already finished (the tracker
 /// was removed) or, for the deterministic fixture tests in this module that
 /// invoke callbacks directly without going through `watch_filtered`/
-/// `watch_tokio`, no tracker was ever registered for that context.
+/// `watch_async`, no tracker was ever registered for that context.
 fn signal_registration_ready(context: *const c_void) {
     if let Some(readiness) = REGISTRATION_READY
         .lock()
@@ -1898,15 +1898,15 @@ impl AdditionProvider for WindowsBackend {
 /// callbacks enqueue into a bounded Tokio transport without blocking a system
 /// callback thread.
 #[cfg(feature = "async")]
-impl TokioEventProvider for WindowsBackend {
+impl AsyncEventProvider for WindowsBackend {
     type Event = Event;
     type EventFilter = EventFilter;
 
-    fn watch_tokio(&self, filter: Self::EventFilter) -> Result<TokioEventReceiver<Self::Event>> {
+    fn watch_async(&self, filter: Self::EventFilter) -> Result<AsyncEventReceiver<Self::Event>> {
         if !supports_event_filter(&filter) {
             return Err(Error::Unsupported);
         }
-        let (sender, receiver) = TokioEventReceiver::bounded();
+        let (sender, receiver) = AsyncEventReceiver::bounded();
         let state = Box::into_raw(Box::new(WindowsTokioWatchState { sender, filter }));
         // Three registrations below, so three `MibInitialNotification`
         // confirmations are expected before this watcher is considered
@@ -2374,7 +2374,7 @@ mod tests {
     }
 
     #[cfg(feature = "async")]
-    fn tokio_route_event(watcher: &mut TokioEventReceiver<Event>, id: RouteId) -> bool {
+    fn async_route_event(watcher: &mut AsyncEventReceiver<Event>, id: RouteId) -> bool {
         use std::pin::Pin;
         use std::task::{Context, Poll, Waker};
         use std::time::Duration;
@@ -3113,7 +3113,7 @@ mod tests {
         /// `SetDnsSettings`/`SetInterfaceDnsSettings` are Windows APIs known
         /// to apply asynchronously in some configurations; 10 attempts x
         /// 200ms (up to 2s total) mirrors the bounded-retry-with-sleep shape
-        /// already used by this file's `tokio_route_event` helper for
+        /// already used by this file's `async_route_event` helper for
         /// similarly eventually-consistent native state.
         fn poll_until_dns_config_converges(
             backend: &WindowsBackend,
@@ -3310,18 +3310,18 @@ mod tests {
 
     #[cfg(feature = "async")]
     #[test]
-    fn watch_tokio_registers_ip_helper_notifications() {
+    fn watch_async_registers_ip_helper_notifications() {
         let backend = WindowsBackend::new().expect("failed to create Windows backend");
         assert!(matches!(
-            backend.watch_tokio(EventFilter::ALL),
+            backend.watch_async(EventFilter::ALL),
             Err(Error::Unsupported)
         ));
         assert!(matches!(
-            backend.watch_tokio(EventFilter::none().neighbors()),
+            backend.watch_async(EventFilter::none().neighbors()),
             Err(Error::Unsupported)
         ));
         let watcher = backend
-            .watch_tokio(EventFilter::none().addresses())
+            .watch_async(EventFilter::none().addresses())
             .expect("failed to register IP Helper notifications");
         drop(watcher);
     }
@@ -3461,7 +3461,7 @@ mod tests {
             .expect("failed to register IP Helper notifications");
         #[cfg(feature = "async")]
         let mut async_watcher = backend
-            .watch_tokio(EventFilter::none().routes())
+            .watch_async(EventFilter::none().routes())
             .expect("failed to register async IP Helper notifications");
         let interface_index = backend
             .interfaces()
@@ -3502,13 +3502,13 @@ mod tests {
             )
         });
         #[cfg(feature = "async")]
-        let async_observed = tokio_route_event(&mut async_watcher, watched_id);
+        let async_observed = async_route_event(&mut async_watcher, watched_id);
         let selected_watcher = backend
             .watch_filtered(EventFilter::none().route(watched_id))
             .expect("failed to register selected IP Helper route notifications");
         #[cfg(feature = "async")]
         let mut selected_async_watcher = backend
-            .watch_tokio(EventFilter::none().route(watched_id))
+            .watch_async(EventFilter::none().route(watched_id))
             .expect("failed to register selected async IP Helper notifications");
         let _ = backend.remove_route(route);
         let selected_observed = (0..12).any(|_| {
@@ -3518,7 +3518,7 @@ mod tests {
             )
         });
         #[cfg(feature = "async")]
-        let selected_async_observed = tokio_route_event(&mut selected_async_watcher, watched_id);
+        let selected_async_observed = async_route_event(&mut selected_async_watcher, watched_id);
         assert!(observed, "watch() did not report the route mutation");
         assert!(
             selected_observed,
@@ -3527,7 +3527,7 @@ mod tests {
         #[cfg(feature = "async")]
         assert!(
             async_observed,
-            "watch_tokio() did not report the route mutation"
+            "watch_async() did not report the route mutation"
         );
         #[cfg(feature = "async")]
         assert!(

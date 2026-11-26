@@ -15,7 +15,7 @@ Net Lattice предоставляет, и privileged CI на Linux/Windows/macO
 `RouteProvider`/`RouteMutator`, `InterfaceProvider`, `InterfaceMutator`,
 `DnsProvider`, `DnsMutator`, `NeighborProvider`, `NeighborMutator`,
 `AddressProvider`, `AddressMutator`, `CapabilityProvider`, синхронный
-`EventProvider`, feature-gated `TokioEventProvider` и object/domain selectors
+`EventProvider`, feature-gated `AsyncEventProvider` и object/domain selectors
 `EventFilter` в `net-lattice-platform`; просмотр и нативное изменение
 маршрутов, адресов интерфейсов, DNS и соседей (ARP/NDP); inspectable mutation
 plans; упорядоченный executor транзакций с runtime-preflight, cancellation на
@@ -878,8 +878,8 @@ Stages 0.15–0.20 построили transactions и declarative apply пове
   нативных событий изменения).
 - `SnapshotProvider` (сборка состояния всей системы; реализуется blanket-
   реализацией, а не вручную на каждый backend).
-- За флагом функции `async`: `TokioEventProvider` и его метод
-  `watch_tokio`, `TokioEventReceiver`, `TokioEventSender`.
+- За флагом функции `async`: `AsyncEventProvider` и его метод
+  `watch_async`, `AsyncEventReceiver`, `AsyncEventSender`.
 
 #### Факты, объявляемые backend'ом не через `Capability`
 
@@ -930,7 +930,7 @@ doc-комментарий `Capability` в поисках "что backend объ
   `NeighborMutator`, `RouteMutator`, `RouteReplaceOrder`.
 - **Модуль `monitoring`** (события изменений, фильтры, monitoring
   provider traits): `EventStream` (за флагом функции `async`),
-  `ChangeKind`, `Event`, `EventDomain`, `EventFilter`, `TokioEventProvider`
+  `ChangeKind`, `Event`, `EventDomain`, `EventFilter`, `AsyncEventProvider`
   (за флагом функции `async`), `EventProvider`, `EventReceiver`,
   `Addition`, `AdditionProvider`.
 - **Модуль `backend`** (единая точка входа для авторов сторонних
@@ -943,7 +943,7 @@ doc-комментарий `Capability` в поисках "что backend объ
   `InterfaceMutator`, `InterfaceProvider`, `NeighborMutator`,
   `NeighborProvider`, `RouteMutator`, `RouteProvider`, `RouteReplaceOrder`,
   `SnapshotProvider`, а также за флагом функции `async`:
-  `TokioEventProvider`, `TokioEventReceiver`, `TokioEventSender`.
+  `AsyncEventProvider`, `AsyncEventReceiver`, `AsyncEventSender`.
 - **`LatticeBackend`** — ограничение времени компиляции, которому должен
   соответствовать сторонний backend: `RouteProvider`/`RouteMutator`/
   `InterfaceProvider`/`InterfaceMutator`/`DnsMutator`/`NeighborProvider`/

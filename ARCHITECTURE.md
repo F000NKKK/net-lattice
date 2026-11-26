@@ -15,7 +15,7 @@ Net Lattice provides, and privileged Linux/Windows/macOS CI verifies:
 `net-lattice-platform`'s `RouteProvider`/`RouteMutator`, `InterfaceProvider`,
 `InterfaceMutator`, `DnsProvider`, `DnsMutator`, `NeighborProvider`,
 `NeighborMutator`, `AddressProvider`, `AddressMutator`, `CapabilityProvider`,
-synchronous `EventProvider`, feature-gated `TokioEventProvider`, and
+synchronous `EventProvider`, feature-gated `AsyncEventProvider`, and
 object/domain `EventFilter` selectors; route/interface-address/DNS/neighbor
 inspection and native mutation; inspectable mutation plans; the ordered
 transaction executor with runtime preflight, cancellation boundaries, typed
@@ -848,8 +848,8 @@ under `net-lattice-core` above) and `RouteReplaceOrder`, which is defined in
   delivery contract).
 - `SnapshotProvider` (whole-system state assembly; blanket-implemented,
   not hand-written per backend).
-- Feature-gated (`async`): `TokioEventProvider` and its method
-  `watch_tokio`, `TokioEventReceiver`, `TokioEventSender`.
+- Feature-gated (`async`): `AsyncEventProvider` and its method
+  `watch_async`, `AsyncEventReceiver`, `AsyncEventSender`.
 
 #### Non-`Capability` backend-declared facts
 
@@ -898,7 +898,7 @@ a backend declare about itself" will miss these two methods.
   `RouteReplaceOrder`.
 - **`monitoring` module** (change events, filters, monitoring provider
   traits): `EventStream` (feature-gated `async`), `ChangeKind`, `Event`,
-  `EventDomain`, `EventFilter`, `TokioEventProvider` (feature-gated
+  `EventDomain`, `EventFilter`, `AsyncEventProvider` (feature-gated
   `async`), `EventProvider`, `EventReceiver`, `Addition`, `AdditionProvider`.
 - **`backend` module** (the one-stop surface for third-party backend
   authors; re-exports items also reachable via `model`/`mutation`/
@@ -909,8 +909,8 @@ a backend declare about itself" will miss these two methods.
   `FirewallMutator`, `FirewallProvider`, `InterfaceMutator`,
   `InterfaceProvider`, `NeighborMutator`, `NeighborProvider`, `RouteMutator`,
   `RouteProvider`, `RouteReplaceOrder`, `SnapshotProvider`, plus
-  feature-gated (`async`) `TokioEventProvider`, `TokioEventReceiver`,
-  `TokioEventSender`.
+  feature-gated (`async`) `AsyncEventProvider`, `AsyncEventReceiver`,
+  `AsyncEventSender`.
 - **`LatticeBackend`** — the compile-time bound a third-party backend must
   satisfy: `RouteProvider`/`RouteMutator`/`InterfaceProvider`/
   `InterfaceMutator`/`DnsMutator`/`NeighborProvider`/`NeighborMutator`/

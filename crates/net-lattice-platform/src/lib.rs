@@ -20,6 +20,8 @@
 mod addition;
 mod address_mutator;
 mod address_provider;
+#[cfg(feature = "async")]
+mod async_event_provider;
 mod capability;
 mod dns_mutator;
 mod dns_provider;
@@ -32,12 +34,12 @@ mod neighbor_mutator;
 mod neighbor_provider;
 mod route_provider;
 mod snapshot_provider;
-#[cfg(feature = "async")]
-mod tokio_event_provider;
 
 pub use addition::{Addition, AdditionProvider};
 pub use address_mutator::AddressMutator;
 pub use address_provider::AddressProvider;
+#[cfg(feature = "async")]
+pub use async_event_provider::{AsyncEventReceiver, AsyncEventSender};
 pub use capability::{Capability, CapabilityProvider};
 pub use dns_mutator::DnsMutator;
 pub use dns_provider::DnsProvider;
@@ -50,14 +52,6 @@ pub use neighbor_mutator::NeighborMutator;
 pub use neighbor_provider::NeighborProvider;
 pub use route_provider::{RouteMutator, RouteProvider, RouteReplaceOrder};
 pub use snapshot_provider::SnapshotProvider;
-/// Executor-independent name for the native async event receiver.
-#[cfg(feature = "async")]
-pub use tokio_event_provider::TokioEventReceiver as AsyncEventReceiver;
-/// Executor-independent name for the native async event sender.
-#[cfg(feature = "async")]
-pub use tokio_event_provider::TokioEventSender as AsyncEventSender;
-#[cfg(feature = "async")]
-pub use tokio_event_provider::{TokioEventReceiver, TokioEventSender};
 
 /// Backend contract for native asynchronous event delivery.
 ///
@@ -70,7 +64,7 @@ pub use tokio_event_provider::{TokioEventReceiver, TokioEventSender};
 ///
 /// Available with the `async` feature.
 #[cfg(feature = "async")]
-pub trait TokioEventProvider {
+pub trait AsyncEventProvider {
     /// The event type produced by the native watcher.
     type Event;
     /// The filter type accepted when creating a native watcher.
@@ -82,50 +76,8 @@ pub trait TokioEventProvider {
     /// use `Lattice::watch_async`. The returned receiver owns the native
     /// subscription; dropping it releases associated backend resources and
     /// cancels event delivery.
-    fn watch_tokio(
-        &self,
-        filter: Self::EventFilter,
-    ) -> net_lattice_core::Result<TokioEventReceiver<Self::Event>>;
-
-    /// Creates an executor-independent native watcher using `filter`.
-    ///
-    /// This is the runtime-neutral spelling of [`Self::watch_tokio`].
     fn watch_async(
         &self,
         filter: Self::EventFilter,
-    ) -> net_lattice_core::Result<AsyncEventReceiver<Self::Event>> {
-        self.watch_tokio(filter)
-    }
-}
-
-/// Executor-independent name for the native async event provider contract.
-#[cfg(feature = "async")]
-pub use TokioEventProvider as AsyncEventProvider;
-
-#[cfg(all(test, feature = "async"))]
-mod async_name_tests {
-    use super::{AsyncEventProvider, AsyncEventReceiver, TokioEventProvider};
-
-    struct Provider;
-
-    impl TokioEventProvider for Provider {
-        type Event = u8;
-        type EventFilter = ();
-
-        fn watch_tokio(&self, _: ()) -> net_lattice_core::Result<AsyncEventReceiver<u8>> {
-            let (sender, receiver) = AsyncEventReceiver::bounded();
-            assert!(sender.send(7, || 0));
-            Ok(receiver)
-        }
-    }
-
-    #[test]
-    fn neutral_provider_method_delegates_to_existing_implementation() {
-        let mut receiver = AsyncEventProvider::watch_async(&Provider, ()).unwrap();
-        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-        assert!(matches!(
-            std::pin::Pin::new(&mut receiver).poll_recv(&mut cx),
-            std::task::Poll::Ready(Some(Ok(7)))
-        ));
-    }
+    ) -> net_lattice_core::Result<AsyncEventReceiver<Self::Event>>;
 }

@@ -21,7 +21,7 @@ use std::time::Duration;
 use futures::Stream;
 use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 pub use net_lattice_core::{Error, Result};
-use net_lattice_platform::{EventReceiver, TokioEventReceiver};
+use net_lattice_platform::{AsyncEventReceiver, EventReceiver};
 
 /// A runtime-agnostic asynchronous stream of network change events.
 ///
@@ -38,7 +38,7 @@ pub struct EventStream<E> {
 }
 enum EventStreamReceiver<E> {
     Futures(UnboundedReceiver<Result<E>>),
-    Tokio(TokioEventReceiver<E>),
+    Native(AsyncEventReceiver<E>),
 }
 
 /// Bridges a synchronous event receiver to a waker-aware stream.
@@ -89,16 +89,13 @@ fn forward_receiver<E>(
 }
 
 /// Wraps a backend-native event receiver in the same public stream.
-pub fn from_tokio_receiver<E>(receiver: TokioEventReceiver<E>) -> EventStream<E> {
+pub fn from_async_receiver<E>(receiver: AsyncEventReceiver<E>) -> EventStream<E> {
     EventStream {
-        receiver: EventStreamReceiver::Tokio(receiver),
+        receiver: EventStreamReceiver::Native(receiver),
         stop: Arc::new(AtomicBool::new(false)),
         worker: None,
     }
 }
-
-/// Executor-independent name for [`from_tokio_receiver`].
-pub use from_tokio_receiver as from_async_receiver;
 
 impl<E> Stream for EventStream<E> {
     type Item = Result<E>;
@@ -106,7 +103,7 @@ impl<E> Stream for EventStream<E> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match &mut self.receiver {
             EventStreamReceiver::Futures(receiver) => Pin::new(receiver).poll_next(cx),
-            EventStreamReceiver::Tokio(receiver) => Pin::new(receiver).poll_recv(cx),
+            EventStreamReceiver::Native(receiver) => Pin::new(receiver).poll_recv(cx),
         }
     }
 }
@@ -145,9 +142,9 @@ mod tests {
     }
 
     #[test]
-    fn native_tokio_receiver_uses_the_same_stream_surface() {
-        let (sender, receiver) = TokioEventReceiver::bounded();
-        let mut events = from_tokio_receiver(receiver);
+    fn native_async_receiver_uses_the_same_stream_surface() {
+        let (sender, receiver) = AsyncEventReceiver::bounded();
+        let mut events = from_async_receiver(receiver);
         assert!(sender.send(7_u8, || 0));
         drop(sender);
         assert_eq!(
@@ -191,22 +188,22 @@ mod tests {
         let (output, _async_receiver) = unbounded::<Result<u8>>();
         forward_receiver(receiver, output, Arc::new(AtomicBool::new(true)));
 
-        let (_sender, receiver) = TokioEventReceiver::<u8>::bounded();
-        drop(from_tokio_receiver(receiver));
+        let (_sender, receiver) = AsyncEventReceiver::<u8>::bounded();
+        drop(from_async_receiver(receiver));
     }
 
     #[test]
     fn native_stream_drop_does_not_attempt_to_join_a_worker() {
-        let (_sender, receiver) = TokioEventReceiver::<u8>::bounded();
-        drop(from_tokio_receiver(receiver));
+        let (_sender, receiver) = AsyncEventReceiver::<u8>::bounded();
+        drop(from_async_receiver(receiver));
     }
 
     #[test]
     fn dropping_a_stream_ignores_a_worker_join_error() {
-        let (_sender, receiver) = TokioEventReceiver::<u8>::bounded();
+        let (_sender, receiver) = AsyncEventReceiver::<u8>::bounded();
         let worker = std::thread::spawn(|| panic!("worker terminated unexpectedly"));
         let stream = EventStream {
-            receiver: EventStreamReceiver::Tokio(receiver),
+            receiver: EventStreamReceiver::Native(receiver),
             stop: Arc::new(AtomicBool::new(false)),
             worker: Some(worker),
         };

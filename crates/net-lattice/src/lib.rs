@@ -223,12 +223,12 @@ use net_lattice_model::route::{Route, RouteConfig};
 use net_lattice_model::snapshot::CurrentState;
 #[allow(unused_imports)]
 use net_lattice_model::{IpAddress, Network};
+#[cfg(feature = "async")]
+use net_lattice_platform::AsyncEventProvider;
 #[allow(unused_imports)]
 use net_lattice_platform::DnsProvider;
 #[allow(unused_imports)]
 use net_lattice_platform::FirewallProvider;
-#[cfg(feature = "async")]
-use net_lattice_platform::TokioEventProvider;
 use net_lattice_platform::{
     Addition, AdditionProvider, AddressMutator, AddressProvider, DnsMutator, EventProvider,
     EventReceiver, EventSender, FirewallMutator, InterfaceMutator, InterfaceProvider,
@@ -330,7 +330,7 @@ pub mod monitoring {
     pub use net_lattice_model::event::{ChangeKind, Event, EventDomain, EventFilter};
     #[cfg(feature = "async")]
     #[doc(inline)]
-    pub use net_lattice_platform::TokioEventProvider;
+    pub use net_lattice_platform::AsyncEventProvider;
     #[doc(inline)]
     pub use net_lattice_platform::{Addition, AdditionProvider, EventProvider, EventReceiver};
 }
@@ -364,10 +364,7 @@ pub mod backend {
         RouteMutator, RouteProvider, RouteReplaceOrder, SnapshotProvider,
     };
     #[cfg(feature = "async")]
-    pub use net_lattice_platform::{
-        AsyncEventProvider, AsyncEventReceiver, AsyncEventSender, TokioEventProvider,
-        TokioEventReceiver, TokioEventSender,
-    };
+    pub use net_lattice_platform::{AsyncEventProvider, AsyncEventReceiver, AsyncEventSender};
 }
 
 /// Bound satisfied by any backend usable with [`Lattice`].
@@ -1299,11 +1296,11 @@ impl<B: LatticeBackend> Lattice<B> {
     #[cfg(feature = "async")]
     pub fn watch_async(&self, filter: EventFilter) -> Result<EventStream<Event>>
     where
-        B: TokioEventProvider<Event = Event, EventFilter = EventFilter>,
+        B: AsyncEventProvider<Event = Event, EventFilter = EventFilter>,
     {
         self.ensure_monitoring_for(&filter)?;
-        Ok(net_lattice_async::from_tokio_receiver(
-            self.backend.watch_tokio(filter)?,
+        Ok(net_lattice_async::from_async_receiver(
+            self.backend.watch_async(filter)?,
         ))
     }
 
@@ -1911,18 +1908,18 @@ mod tests {
     }
 
     #[cfg(feature = "async")]
-    impl TokioEventProvider for TestBackend {
+    impl AsyncEventProvider for TestBackend {
         type Event = Event;
         type EventFilter = EventFilter;
 
-        fn watch_tokio(
+        fn watch_async(
             &self,
             filter: Self::EventFilter,
-        ) -> Result<net_lattice_platform::TokioEventReceiver<Self::Event>> {
+        ) -> Result<net_lattice_platform::AsyncEventReceiver<Self::Event>> {
             if self.fail_events {
                 return Err(Error::InvalidState);
             }
-            let (sender, receiver) = net_lattice_platform::TokioEventReceiver::bounded();
+            let (sender, receiver) = net_lattice_platform::AsyncEventReceiver::bounded();
             let event = Event::Route {
                 id: RouteId::new(1),
                 kind: ChangeKind::Added,
@@ -3831,7 +3828,7 @@ mod tests {
     /// none().route(id))` for the selected removal notification, and, with
     /// the `async` feature, `lattice.watch_async` polled the same way the
     /// backend crate's `tokio_route_event` helper polls its
-    /// `TokioEventReceiver`. Obtains the watched id from the notification
+    /// `AsyncEventReceiver`. Obtains the watched id from the notification
     /// itself rather than assuming it, matching the backend-level test's
     /// approach. Uses `2001:db8:9::/64`, distinct from every other IPv6
     /// subnet already reserved by the other ignored facade tests in this
@@ -3981,7 +3978,7 @@ mod tests {
     /// `Event::Route` notification matching `id`, mirroring the backend
     /// crate's `tokio_route_event` helper but for the facade's
     /// runtime-agnostic `EventStream` instead of a native
-    /// `TokioEventReceiver`.
+    /// `AsyncEventReceiver`.
     #[cfg(feature = "async")]
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     fn facade_async_route_event(watcher: &mut EventStream<Event>, id: RouteId) -> bool {
