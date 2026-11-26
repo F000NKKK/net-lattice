@@ -562,9 +562,11 @@ routing sockets BSD в macOS). В Stage 0.8 его API синхронный и
 runtime-агностичный: `watch() -> Result<EventReceiver<Event>>`.
 `EventReceiver` повторяет модель `std::sync::mpsc::Receiver`: предоставляет
 `recv`, `try_recv`, `recv_timeout` и реализует `Iterator`. Это сохраняет
-возможность использования без async runtime.
+возможность использования из синхронного кода; сам контракт не определяет
+зависимости и внутреннюю модель исполнения backend'а.
 
-Синхронный контракт остаётся доступен без async-зависимости. Этап 0.11
+Синхронный контракт остаётся доступен без feature `async`, хотя Linux backend
+использует внутренний Tokio runtime. Этап 0.11
 добавляет опциональную feature `async` в `net-lattice`: она реэкспортирует единый
 runtime-agnostic `net-lattice-async::EventStream` и добавляет
 `Lattice::watch_async(filter)`. `EventStream` реализует `futures::Stream`,

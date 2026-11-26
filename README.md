@@ -60,8 +60,9 @@ shell commands, or ad hoc string parsing.
   special-case operating systems.
 - **🛡️ Correctness and safety first**: networking configuration is
   sensitive; the library makes incorrect states difficult to represent.
-  Observed state and desired intent are separate types, and every mutation
-  returns a fresh read-after-write observation.
+  Observed state and desired intent are separate types. Operations that
+  promise read-after-write return the observed value; others return an
+  acknowledgement and may require an explicit read to confirm state.
 - **🧭 Query, don't assume**: runtime `Capability` flags say exactly what
   the connected backend supports, and an unsupported request fails with a
   typed error instead of silently doing less.
@@ -109,7 +110,7 @@ shell commands, or ad hoc string parsing.
 - ✅ **Network change notifications** with domain and object filters
 - ✅ **Bounded delivery**: a slow consumer gets `ResyncRequired`, never an
   unbounded backlog
-- ✅ **Optional runtime-agnostic async event stream** (`async` feature)
+- ✅ **Optional executor-independent async event stream** (`async` feature)
 - ✅ **Opt-in `Addition` tier** for lesser-quality substitutes (for example,
   polling) where a platform has no native mechanism
 
@@ -184,12 +185,14 @@ addition-sourced events on a backend that does not report it.
 # Synchronous API
 net-lattice = "1.1"
 
-# Plus the runtime-independent async event stream (`Lattice::watch_async`)
+# Plus the executor-independent async event stream (`Lattice::watch_async`)
 # net-lattice = { version = "1.1", features = ["async"] }
 ```
 
 `async` is the only feature. It adds a `futures::Stream` watcher surface and
-does not select an async runtime. On Linux, building also needs the `libmnl`
+does not select an async runtime for the caller. The current async event
+transport uses Tokio synchronization, and the Linux backend also creates an
+internal Tokio runtime. On Linux, building also needs the `libmnl`
 and `libnftnl` development packages; see [Linux setup](#linux).
 
 ## 🎓 Quick Start
@@ -471,7 +474,7 @@ Windows, and macOS CI jobs:
 - `net-lattice-core`, `net-lattice-ip`
 - `net-lattice-model`'s `route`, `mac`, `interface`, `dns`, `neighbor`, `ifaddr`, `event`, and `mutation` modules; `NewInterfaceAddress`, `NewDnsConfig`, and `StaticNeighbor` express mutation intent separately from observed state
 - `net-lattice-platform`'s `RouteProvider`, `RouteMutator`, `InterfaceProvider`, `InterfaceMutator`, `DnsProvider`, `DnsMutator`, `NeighborProvider`, `NeighborMutator`, `AddressProvider`, `AddressMutator`, `CapabilityProvider`, synchronous `EventProvider`/bounded `EventReceiver`, and optional async monitoring support
-- `net-lattice-async`, which exposes the single runtime-agnostic `EventStream` type
+- `net-lattice-async`, which exposes the single executor-independent `EventStream` type
 - the `net-lattice` facade, including `Lattice::add_address()`, `Lattice::remove_address()`, `Lattice::set_dns_config()`, `Lattice::set_interface_config()`, `Lattice::add_static_neighbor()`, `Lattice::remove_static_neighbor()`, `Lattice::capabilities()`, `Lattice::supports()`, `Lattice::watch()`, `Lattice::watch_filtered()`, `Lattice::execute_plan()`, `Lattice::execute_apply_plan()`, `Lattice::apply()`, and feature-gated `Lattice::watch_async()`
 
 This gives real route, interface-address, and static ARP/NDP neighbor
@@ -493,7 +496,7 @@ own crate-level README with its scope and a usage example:
 | [`net-lattice-platform`](crates/net-lattice-platform/README.md) | Provider and capability contracts |
 | [`net-lattice-core`](crates/net-lattice-core/README.md) | Shared errors, results, and IDs |
 | [`net-lattice-ip`](crates/net-lattice-ip/README.md) | IPv4/IPv6 addresses and networks |
-| [`net-lattice-async`](crates/net-lattice-async/README.md) | Runtime-independent event stream adapter |
+| [`net-lattice-async`](crates/net-lattice-async/README.md) | Executor-independent event stream adapter |
 | [`net-lattice-backend-linux`](crates/net-lattice-backend-linux/README.md) | Linux Netlink backend |
 | [`net-lattice-backend-windows`](crates/net-lattice-backend-windows/README.md) | Windows IP Helper backend |
 | [`net-lattice-backend-darwin`](crates/net-lattice-backend-darwin/README.md) | macOS BSD/PF_ROUTE backend |

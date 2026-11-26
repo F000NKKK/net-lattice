@@ -34,8 +34,9 @@ Interfaces, addresses, routes, neighbors, DNS, and firewall rules are Rust
 types, never parsed tool output; backends call native APIs (Netlink; IP
 Helper and WFP; routing sockets and `pf`), never subprocesses. Runtime
 `Capability` flags say what the backend supports, and unsupported requests
-fail with a typed error. Every mutation takes a desired-intent type and
-returns a fresh observed read-back.
+fail with a typed error. Confirmation differs by operation: for example,
+interface configuration and address creation return observed values, while
+route changes and firewall replacement return an acknowledgement.
 
 Main surface: `Lattice` with per-domain reads, `current_state`, imperative
 route/address/resolver/interface/static-neighbor mutations, `execute_plan`,
@@ -62,12 +63,15 @@ privileged facade tests on all three
 ```toml
 [dependencies]
 net-lattice = "1.1"
-# or, with the runtime-independent async event stream (`Lattice::watch_async`):
+# or, with the executor-independent async event stream (`Lattice::watch_async`):
 # net-lattice = { version = "1.1", features = ["async"] }
 ```
 
 On Linux, building needs the `libmnl` and `libnftnl` development packages
 (for example `apt-get install libmnl-dev libnftnl-dev`).
+The async event transport currently depends on Tokio synchronization; the
+Linux backend also creates an internal Tokio runtime for Netlink operations.
+The stream can be polled by other executors.
 
 ## 🎓 Quick Start
 

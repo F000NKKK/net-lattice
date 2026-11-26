@@ -47,6 +47,9 @@ native inspection, mutation, and monitoring behind the generic
 The crate compiles to an empty library on any target other than Linux. The
 `async` feature enables native async event delivery (and
 `net-lattice-platform/async`).
+The current backend also creates an internal Tokio runtime for Netlink
+operations even without the `async` feature. The async event channel uses
+Tokio synchronization but can be polled by a different executor.
 
 ## 📦 Installation
 
@@ -63,9 +66,8 @@ Firewall management links against `libmnl` and `libnftnl` via the `nftnl`
 crate (Mullvad, MIT/Apache-2.0); no `nft` subprocess is ever spawned. The
 `-dev` packages are needed to *build* this crate, e.g. on Debian/Ubuntu
 `apt-get install libmnl-dev libnftnl-dev`. The runtime shared libraries
-(`libmnl0`/`libnftnl11` or newer) must be present wherever the binary runs;
-otherwise this is a build-time header/`pkg-config` requirement only and
-does not affect runtime portability.
+(`libmnl0`/`libnftnl11` or compatible versions) must be available wherever
+a dynamically linked binary runs.
 
 ## 🎓 Quick Start
 

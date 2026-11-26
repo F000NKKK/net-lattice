@@ -2,7 +2,7 @@
 
 # ⚡ net-lattice-async
 
-### Runtime-Independent Event Stream Adapter for Net Lattice
+### Executor-Independent Event Stream Adapter for Net Lattice
 
 [![crates.io](https://img.shields.io/crates/v/net-lattice-async.svg?cacheSeconds=86400)](https://crates.io/crates/net-lattice-async)
 [![docs.rs](https://img.shields.io/docsrs/net-lattice-async?cacheSeconds=86400)](https://docs.rs/net-lattice-async)
@@ -18,7 +18,7 @@
 
 ## 📖 Overview
 
-Runtime-independent asynchronous event-stream adapter for
+Executor-independent asynchronous event-stream adapter for
 [Net Lattice](https://github.com/F000NKKK/net-lattice).
 
 > Applications normally enable the `async` feature on
@@ -62,7 +62,9 @@ where
 
 The adapter does not select an async runtime. A blocking receiver uses a
 dedicated worker because `std::sync::mpsc::Receiver` cannot register a waker;
-a native Tokio receiver is exposed without that worker.
+a native Tokio receiver is exposed without that worker. The platform crate's
+async event channel currently depends on Tokio's synchronization primitives,
+even when the stream is polled by another executor.
 
 ## 📖 Documentation
 

@@ -552,9 +552,11 @@ Windows, BSD routing sockets on macOS). Its Stage 0.8 API is synchronous
 and runtime-agnostic: `watch() -> Result<EventReceiver<Event>>`.
 `EventReceiver` mirrors `std::sync::mpsc::Receiver`: it offers `recv`,
 `try_recv`, and `recv_timeout`, and implements `Iterator`. This keeps the
-core usable by synchronous programs and avoids imposing an async runtime.
+contract usable by synchronous programs; it does not by itself describe
+the dependencies or internal execution model of a backend.
 
-The synchronous contract remains available without an async dependency. Stage
+The synchronous contract remains available without the `async` feature. The
+Linux backend nevertheless uses an internal Tokio runtime. Stage
 0.11 adds the optional `net-lattice` `async` feature, which re-exports the
 single runtime-agnostic `net-lattice-async::EventStream` and adds
 `Lattice::watch_async(filter)`. `EventStream` implements `futures::Stream`,
