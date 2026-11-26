@@ -404,30 +404,20 @@ impl RouteMutator for LinuxBackend {
 
     fn add_route(&self, route: Self::RouteConfig) -> Result<()> {
         validate_route_family(&route)?;
-        self.runtime.block_on(async {
-            let message = route_request_message(&route, true);
-
-            self.handle
-                .route()
-                .add(message)
-                .execute()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))
-        })
+        let message = route_request_message(&route, true);
+        self.dump.lock().map_err(|_| Error::InvalidState)?.change(
+            RouteNetlinkMessage::NewRoute(message),
+            rtnetlink::packet_core::NLM_F_CREATE | rtnetlink::packet_core::NLM_F_EXCL,
+        )
     }
 
     fn remove_route(&self, route: Self::RouteConfig) -> Result<()> {
         validate_route_family(&route)?;
-        self.runtime.block_on(async {
-            let message = route_request_message(&route, false);
-
-            self.handle
-                .route()
-                .del(message)
-                .execute()
-                .await
-                .map_err(|err| Error::Platform(rtnetlink_error_code(&err)))
-        })
+        let message = route_request_message(&route, false);
+        self.dump
+            .lock()
+            .map_err(|_| Error::InvalidState)?
+            .change(RouteNetlinkMessage::DelRoute(message), 0)
     }
 }
 

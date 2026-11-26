@@ -8,8 +8,8 @@ use std::io;
 use net_lattice_core::{Error, PlatformErrorCode, Result};
 use netlink_sys::{Socket, SocketAddr, protocols::NETLINK_ROUTE};
 use rtnetlink::packet_core::{
-    NLM_F_DUMP, NLM_F_DUMP_INTR, NLM_F_REQUEST, NetlinkBuffer, NetlinkHeader, NetlinkMessage,
-    NetlinkPayload,
+    NLM_F_ACK, NLM_F_DUMP, NLM_F_DUMP_INTR, NLM_F_REQUEST, NetlinkBuffer, NetlinkHeader,
+    NetlinkMessage, NetlinkPayload,
 };
 use rtnetlink::packet_route::RouteNetlinkMessage;
 
@@ -49,9 +49,23 @@ impl DumpSocket {
         &mut self,
         request: RouteNetlinkMessage,
     ) -> Result<Vec<RouteNetlinkMessage>> {
+        self.exchange(request, NLM_F_DUMP, false)
+    }
+
+    /// Sends one change and waits for its matching kernel acknowledgement.
+    pub(crate) fn change(&mut self, request: RouteNetlinkMessage, flags: u16) -> Result<()> {
+        self.exchange(request, NLM_F_ACK | flags, true).map(drop)
+    }
+
+    fn exchange(
+        &mut self,
+        request: RouteNetlinkMessage,
+        flags: u16,
+        expect_ack: bool,
+    ) -> Result<Vec<RouteNetlinkMessage>> {
         self.sequence = self.sequence.wrapping_add(1).max(1);
         let mut header = NetlinkHeader::default();
-        header.flags = NLM_F_REQUEST | NLM_F_DUMP;
+        header.flags = NLM_F_REQUEST | flags;
         header.sequence_number = self.sequence;
         let mut packet = NetlinkMessage::new(header, NetlinkPayload::InnerMessage(request));
         packet.finalize();
@@ -77,7 +91,13 @@ impl DumpSocket {
             if from.port_number() != 0 {
                 continue;
             }
-            if decode(&datagram, self.sequence, &mut interrupted, &mut messages)? {
+            if decode(
+                &datagram,
+                self.sequence,
+                expect_ack,
+                &mut interrupted,
+                &mut messages,
+            )? {
                 return Ok(messages);
             }
         }
@@ -87,6 +107,7 @@ impl DumpSocket {
 fn decode(
     data: &[u8],
     sequence: u32,
+    expect_ack: bool,
     interrupted: &mut bool,
     messages: &mut Vec<RouteNetlinkMessage>,
 ) -> Result<bool> {
@@ -102,8 +123,11 @@ fn decode(
         if message.header.sequence_number == sequence {
             *interrupted |= message.header.flags & NLM_F_DUMP_INTR != 0;
             match message.payload {
-                NetlinkPayload::InnerMessage(value) => messages.push(value),
+                NetlinkPayload::InnerMessage(value) if !expect_ack => messages.push(value),
                 NetlinkPayload::Done(done) => {
+                    if expect_ack {
+                        return Err(malformed());
+                    }
                     if done.code != 0 {
                         return Err(Error::Platform(PlatformErrorCode::Linux(done.code)));
                     }
@@ -115,6 +139,9 @@ fn decode(
                 NetlinkPayload::Error(error) => {
                     if let Some(code) = error.code {
                         return Err(Error::Platform(PlatformErrorCode::Linux(code.into())));
+                    }
+                    if expect_ack {
+                        return Ok(true);
                     }
                 }
                 NetlinkPayload::Noop => {}
@@ -133,7 +160,7 @@ fn decode(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rtnetlink::packet_core::DoneMessage;
+    use rtnetlink::packet_core::{DoneMessage, ErrorMessage};
     use rtnetlink::packet_route::link::LinkMessage;
 
     fn encode(payload: NetlinkPayload<RouteNetlinkMessage>, sequence: u32, flags: u16) -> Vec<u8> {
@@ -161,7 +188,7 @@ mod tests {
         ));
         data.extend(encode(NetlinkPayload::Done(DoneMessage::default()), 7, 0));
         let mut messages = Vec::new();
-        assert!(decode(&data, 7, &mut false, &mut messages).unwrap());
+        assert!(decode(&data, 7, false, &mut false, &mut messages).unwrap());
         assert_eq!(messages.len(), 1);
     }
 
@@ -172,8 +199,31 @@ mod tests {
             7,
             NLM_F_DUMP_INTR,
         );
-        assert!(decode(&done, 7, &mut false, &mut Vec::new()).is_err());
-        assert!(decode(&done[..done.len() - 1], 7, &mut false, &mut Vec::new()).is_err());
+        assert!(decode(&done, 7, false, &mut false, &mut Vec::new()).is_err());
+        assert!(
+            decode(
+                &done[..done.len() - 1],
+                7,
+                false,
+                &mut false,
+                &mut Vec::new()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn changes_wait_for_matching_ack_and_preserve_kernel_errno() {
+        let other = encode(NetlinkPayload::Error(ErrorMessage::default()), 8, 0);
+        assert!(!decode(&other, 7, true, &mut false, &mut Vec::new()).unwrap());
+        let ack = encode(NetlinkPayload::Error(ErrorMessage::default()), 7, 0);
+        assert!(decode(&ack, 7, true, &mut false, &mut Vec::new()).unwrap());
+        let mut error = ErrorMessage::default();
+        error.code = std::num::NonZeroI32::new(-libc::EPERM);
+        let nack = encode(NetlinkPayload::Error(error), 7, 0);
+        assert!(
+            matches!(decode(&nack, 7, true, &mut false, &mut Vec::new()), Err(Error::Platform(PlatformErrorCode::Linux(code))) if code == -libc::EPERM)
+        );
     }
 
     #[test]
