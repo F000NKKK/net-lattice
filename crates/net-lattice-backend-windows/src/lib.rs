@@ -83,16 +83,12 @@ const IF_TYPE_BRIDGE: u32 = 209;
 
 /// The Windows IP Helper API-backed implementation of Net Lattice's provider
 /// traits.
-pub struct WindowsBackend {
-    runtime: tokio::runtime::Runtime,
-}
+pub struct WindowsBackend;
 
 impl WindowsBackend {
-    /// Creates a Windows IP Helper backend and initializes its internal runtime.
+    /// Creates a Windows IP Helper backend.
     pub fn new() -> Result<Self> {
-        let runtime =
-            tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;
-        Ok(Self { runtime })
+        Ok(Self)
     }
 }
 
@@ -102,10 +98,6 @@ impl WindowsBackend {
 /// any native subscription.
 fn supports_event_filter(filter: &EventFilter) -> bool {
     !filter.selects_domain(EventDomain::Neighbor)
-}
-
-fn io_error_code(err: &std::io::Error) -> PlatformErrorCode {
-    PlatformErrorCode::Windows(err.raw_os_error().unwrap_or(0) as u32)
 }
 
 /// Placeholder identity scheme: a route has no kernel-assigned numeric ID,
@@ -355,10 +347,10 @@ impl RouteProvider for WindowsBackend {
     type Route = Route;
 
     fn routes(&self) -> Result<Vec<Self::Route>> {
-        self.runtime.block_on(async {
+        (|| {
             let mut routes = Vec::new();
 
-            let table_v4 = ip_forward_table(AF_INET).await?;
+            let table_v4 = ip_forward_table(AF_INET)?;
             unsafe {
                 let rows = std::slice::from_raw_parts(
                     (*table_v4).Table.as_ptr(),
@@ -372,7 +364,7 @@ impl RouteProvider for WindowsBackend {
             }
             free_table(table_v4);
 
-            let table_v6 = ip_forward_table(AF_INET6).await?;
+            let table_v6 = ip_forward_table(AF_INET6)?;
             unsafe {
                 let rows = std::slice::from_raw_parts(
                     (*table_v6).Table.as_ptr(),
@@ -387,7 +379,7 @@ impl RouteProvider for WindowsBackend {
             free_table(table_v6);
 
             Ok(routes)
-        })
+        })()
     }
 }
 
@@ -396,7 +388,7 @@ impl RouteMutator for WindowsBackend {
 
     fn add_route(&self, route: Self::RouteConfig) -> Result<()> {
         validate_route_family(&route)?;
-        self.runtime.block_on(async move {
+        (|| {
             let row = build_row(route);
             unsafe {
                 let status = CreateIpForwardEntry2(&row);
@@ -405,18 +397,18 @@ impl RouteMutator for WindowsBackend {
                 }
             }
             Ok(())
-        })
+        })()
     }
 
     fn remove_route(&self, route: Self::RouteConfig) -> Result<()> {
         validate_route_family(&route)?;
-        self.runtime.block_on(async move {
+        (|| {
             let address_family = match route.destination {
                 Network::V4(_) => AF_INET,
                 Network::V6(_) => AF_INET6,
             };
 
-            let table = ip_forward_table(address_family).await?;
+            let table = ip_forward_table(address_family)?;
             unsafe {
                 let rows = std::slice::from_raw_parts(
                     (*table).Table.as_ptr(),
@@ -444,11 +436,11 @@ impl RouteMutator for WindowsBackend {
                 }
             }
             Ok(())
-        })
+        })()
     }
 }
 
-async fn ip_forward_table(address_family: ADDRESS_FAMILY) -> Result<*mut MIB_IPFORWARD_TABLE2> {
+fn ip_forward_table(address_family: ADDRESS_FAMILY) -> Result<*mut MIB_IPFORWARD_TABLE2> {
     unsafe {
         let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
         let status = GetIpForwardTable2(address_family, &mut table);
@@ -545,7 +537,7 @@ impl InterfaceProvider for WindowsBackend {
     type Interface = Interface;
 
     fn interfaces(&self) -> Result<Vec<Self::Interface>> {
-        self.runtime.block_on(async {
+        (|| {
             let mut interfaces = Vec::new();
             unsafe {
                 let mut table: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
@@ -563,7 +555,7 @@ impl InterfaceProvider for WindowsBackend {
                 FreeMibTable(table.cast());
             }
             Ok(interfaces)
-        })
+        })()
     }
 }
 
@@ -859,7 +851,7 @@ impl AddressProvider for WindowsBackend {
     type InterfaceAddress = InterfaceAddress;
 
     fn addresses(&self) -> Result<Vec<Self::InterfaceAddress>> {
-        self.runtime.block_on(async {
+        (|| {
             let mut table: *mut MIB_UNICASTIPADDRESS_TABLE = std::ptr::null_mut();
             let status = unsafe { GetUnicastIpAddressTable(AF_UNSPEC, &mut table) };
             if status.0 != 0 {
@@ -876,7 +868,7 @@ impl AddressProvider for WindowsBackend {
             unsafe { FreeMibTable(table.cast()) };
 
             Ok(addresses)
-        })
+        })()
     }
 }
 
@@ -1047,11 +1039,8 @@ fn row_to_neighbor(row: &MIB_IPNET_ROW2) -> Option<NeighborEntry> {
 
 /// Reads the current kernel neighbor (ARP/NDP) table via `GetIpNetTable2`.
 ///
-/// A plain synchronous Win32 call with no dependency on `WindowsBackend`'s
-/// Tokio runtime, so it can be called both from
-/// [`NeighborProvider::neighbors`] (via `self.runtime.block_on`, preserving
-/// prior behavior) and directly from the background polling thread backing
-/// [`Addition::NEIGHBOR_MONITORING_POLLING`], which has no access to `self`.
+/// A synchronous Win32 call shared by [`NeighborProvider::neighbors`] and
+/// the background polling thread backing [`Addition::NEIGHBOR_MONITORING_POLLING`].
 fn read_neighbor_table() -> Result<Vec<NeighborEntry>> {
     let mut table: *mut MIB_IPNET_TABLE2 = std::ptr::null_mut();
     let status = unsafe { GetIpNetTable2(AF_UNSPEC, &mut table) };
@@ -1072,7 +1061,7 @@ impl NeighborProvider for WindowsBackend {
     type NeighborEntry = NeighborEntry;
 
     fn neighbors(&self) -> Result<Vec<Self::NeighborEntry>> {
-        self.runtime.block_on(async { read_neighbor_table() })
+        read_neighbor_table()
     }
 }
 
@@ -2114,6 +2103,22 @@ mod tests {
     use super::*;
     use net_lattice_ip::{Ipv4Address, Ipv4Network, Ipv4PrefixLength};
     use windows::Win32::NetworkManagement::IpHelper::MibParameterNotification;
+
+    #[test]
+    fn synchronous_inspection_works_inside_a_runtime() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("create test runtime");
+        runtime.block_on(async {
+            let backend = WindowsBackend::new().expect("create backend inside runtime");
+            backend.routes().expect("read routes inside runtime");
+            backend
+                .interfaces()
+                .expect("read interfaces inside runtime");
+            backend.addresses().expect("read addresses inside runtime");
+            backend.neighbors().expect("read neighbors inside runtime");
+        });
+    }
 
     /// Serializes ignored native tests in this module. Each one mutates or
     /// observes real Windows IP Helper state (routes, addresses, neighbor
