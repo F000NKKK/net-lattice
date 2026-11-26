@@ -49,7 +49,7 @@ The `async` feature enables native async event delivery (and
 Filtering Platform through the `windows` crate's raw FFI bindings; no
 build-time system package is needed beyond a normal Windows SDK toolchain.
 The backend does not create a Tokio runtime. Its optional async event channel
-currently uses Tokio synchronization and can be polled by another executor.
+does not depend on Tokio and can be polled by any executor.
 
 ## 📡 Monitoring
 

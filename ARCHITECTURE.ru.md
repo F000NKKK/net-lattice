@@ -573,10 +573,10 @@ runtime-agnostic `net-lattice-async::EventStream` и добавляет
 поэтому приложения сохраняют свободу выбора executor. Это не zero-cost wrapper
 вокруг `EventReceiver`: `std::sync::mpsc::Receiver` не может регистрировать
 waker. Отдельный async crate сохраняет явный worker-thread bridge для
-произвольного синхронного receiver, но фасад использует нативный Tokio-aware
-путь каждого backend: Netlink опрашивается существующим Tokio runtime Linux,
-callbacks IP Helper Windows пишут в bounded Tokio channel, а reader PF_ROUTE
-macOS пишет прямо в этот channel. Все нативные async transports имеют ту же
+произвольного синхронного receiver, но фасад использует нативный путь каждого
+backend: Netlink опрашивается существующим Tokio runtime Linux, callbacks IP
+Helper Windows и reader PF_ROUTE macOS пишут в bounded channel, независимый
+от executor. Все нативные async transports имеют ту же
 семантику bounded delivery и resynchronization, что и `EventReceiver`.
 
 ## Модель состояния: императивная и декларативная

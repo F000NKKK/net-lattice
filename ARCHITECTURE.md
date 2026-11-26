@@ -564,9 +564,9 @@ so applications remain free to choose an executor. This is not a zero-cost
 wrapper around `EventReceiver`: `std::sync::mpsc::Receiver` cannot register a
 waker. The separate async crate retains an explicit worker-thread bridge for
 an arbitrary synchronous receiver, but the facade uses each backend's native
-Tokio-aware path: Netlink is polled by Linux's existing Tokio runtime, Windows
-IP Helper callbacks write to a bounded Tokio channel, and macOS's PF_ROUTE
-reader thread writes directly to that channel. All native async transports use
+path: Netlink is polled by Linux's existing Tokio runtime, Windows IP Helper
+callbacks and the macOS PF_ROUTE reader thread write to a bounded,
+executor-independent channel. All native async transports use
 the same bounded delivery and resynchronization semantics as `EventReceiver`.
 
 ## State Model: Imperative and Declarative

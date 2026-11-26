@@ -4,9 +4,8 @@
 //! [`net_lattice_platform::EventReceiver`] onto a `futures::Stream`. It
 //! deliberately creates one worker thread: `std::sync::mpsc::Receiver` has no
 //! waker-registration mechanism, so a direct `Stream` implementation would
-//! block an executor thread. The adapter does not select an executor; the
-//! platform crate currently uses Tokio's synchronization primitives for its
-//! native event channel.
+//! block an executor thread. The adapter does not select an executor, and
+//! the platform event channel does not depend on an async runtime.
 
 #![warn(missing_docs)]
 
@@ -89,7 +88,7 @@ fn forward_receiver<E>(
     }
 }
 
-/// Wraps a backend-native Tokio event receiver in the same public stream.
+/// Wraps a backend-native event receiver in the same public stream.
 pub fn from_tokio_receiver<E>(receiver: TokioEventReceiver<E>) -> EventStream<E> {
     EventStream {
         receiver: EventStreamReceiver::Tokio(receiver),

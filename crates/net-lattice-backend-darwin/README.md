@@ -49,7 +49,7 @@ The crate compiles to an empty library on any target other than macOS. The
 `/dev/pf`, so no build-time system package is required; the `firewall`
 module's documentation describes the risk profile of that approach.
 The backend does not create a Tokio runtime. Its optional async event channel
-currently uses Tokio synchronization and can be polled by another executor.
+does not depend on Tokio and can be polled by any executor.
 
 ## 📦 Installation
 

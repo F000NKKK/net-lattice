@@ -13,9 +13,8 @@ description = "Generic provider traits and Capability contract between the model
 readme = "README.md"
 
 [features]
-async = ["dep:tokio"]
+async = []
 
 [dependencies]
 net-lattice-core = { workspace = true }
 bitflags = { workspace = true }
-tokio = { workspace = true, optional = true, features = ["sync"] }

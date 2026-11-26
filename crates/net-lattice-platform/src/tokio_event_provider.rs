@@ -1,14 +1,15 @@
 use std::any::Any;
+use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 
 use net_lattice_core::Result;
 
-/// Tokio-backed half of a bounded event channel.
+/// Sender half of a bounded, executor-independent event channel.
 ///
 /// This is an implementation detail of the feature-gated async provider
 /// contract. Backends use [`send`](Self::send) exactly as their synchronous
@@ -16,35 +17,47 @@ use net_lattice_core::Result;
 /// resynchronization event is scheduled instead of allowing unbounded memory
 /// growth.
 pub struct TokioEventSender<E> {
-    sender: tokio::sync::mpsc::Sender<Result<E>>,
+    state: Arc<Mutex<Channel<E>>>,
     resync_pending: Arc<AtomicBool>,
     terminal_error: Arc<Mutex<Option<net_lattice_core::Error>>>,
 }
 
-/// Tokio receiver that owns the native subscription which produces its events.
+/// Event receiver that owns the native subscription which produces its events.
 ///
 /// The subscription is dropped with the receiver, cancelling platform handles,
 /// tasks, or reader threads before their callback state can be freed.
 pub struct TokioEventReceiver<E> {
-    receiver: tokio::sync::mpsc::Receiver<Result<E>>,
+    state: Arc<Mutex<Channel<E>>>,
     subscription: Option<Box<dyn Any + Send>>,
     terminal_error: Arc<Mutex<Option<net_lattice_core::Error>>>,
+}
+
+struct Channel<E> {
+    queue: VecDeque<E>,
+    sender_alive: bool,
+    receiver_alive: bool,
+    waker: Option<Waker>,
 }
 
 impl<E> TokioEventReceiver<E> {
     /// Creates a bounded transport using the same capacity as `EventReceiver`.
     pub fn bounded() -> (TokioEventSender<E>, Self) {
-        let (sender, receiver) = tokio::sync::mpsc::channel(EventReceiverCapacity::VALUE);
+        let state = Arc::new(Mutex::new(Channel {
+            queue: VecDeque::new(),
+            sender_alive: true,
+            receiver_alive: true,
+            waker: None,
+        }));
         let pending = Arc::new(AtomicBool::new(false));
         let terminal_error = Arc::new(Mutex::new(None));
         (
             TokioEventSender {
-                sender,
+                state: Arc::clone(&state),
                 resync_pending: pending,
                 terminal_error: Arc::clone(&terminal_error),
             },
             Self {
-                receiver,
+                state,
                 subscription: None,
                 terminal_error,
             },
@@ -61,46 +74,65 @@ impl<E> TokioEventReceiver<E> {
     }
 
     /// Polls the next event without tying the platform crate to a futures API.
-    pub fn poll_recv(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<E>>> {
-        match Pin::new(&mut self.receiver).poll_recv(cx) {
-            Poll::Ready(None) => Poll::Ready(
-                self.terminal_error
-                    .lock()
-                    .expect("Tokio event sender poisoned")
-                    .take()
-                    .map(Err),
-            ),
-            other => other,
+    pub fn poll_recv(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<E>>> {
+        let mut state = self.state.lock().expect("event channel poisoned");
+        if let Some(event) = state.queue.pop_front() {
+            return Poll::Ready(Some(Ok(event)));
         }
+        if state.sender_alive {
+            state.waker = Some(cx.waker().clone());
+            return Poll::Pending;
+        }
+        drop(state);
+        Poll::Ready(
+            self.terminal_error
+                .lock()
+                .expect("Tokio event sender poisoned")
+                .take()
+                .map(Err),
+        )
     }
 }
 
 impl<E> TokioEventSender<E> {
-    /// Attempts to enqueue an event without ever blocking an OS callback.
+    /// Attempts to enqueue an event without waiting for queue capacity.
     pub fn send(&self, event: E, resync: impl FnOnce() -> E) -> bool {
-        if self.resync_pending.swap(false, Ordering::AcqRel) {
-            match self.sender.try_send(Ok(resync())) {
-                Ok(()) => {}
-                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                    self.resync_pending.store(true, Ordering::Release);
-                    return true;
-                }
-                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => return false,
-            }
+        let resync = self
+            .resync_pending
+            .swap(false, Ordering::AcqRel)
+            .then(resync);
+        let mut state = self.state.lock().expect("event channel poisoned");
+        if !state.receiver_alive {
+            return false;
         }
-        match self.sender.try_send(Ok(event)) {
-            Ok(()) => true,
-            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+        if let Some(resync) = resync {
+            if state.queue.len() == EventReceiverCapacity::VALUE {
                 self.resync_pending.store(true, Ordering::Release);
-                true
+                return true;
             }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => false,
+            state.queue.push_back(resync);
         }
+        if state.queue.len() == EventReceiverCapacity::VALUE {
+            self.resync_pending.store(true, Ordering::Release);
+        } else {
+            state.queue.push_back(event);
+        }
+        let waker = state.waker.take();
+        drop(state);
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+        true
     }
 
     /// Reports a terminal backend error if the consumer is still connected.
     pub fn send_error(&self, error: net_lattice_core::Error) -> bool {
-        if self.sender.is_closed() {
+        if !self
+            .state
+            .lock()
+            .expect("event channel poisoned")
+            .receiver_alive
+        {
             return false;
         }
         *self
@@ -108,6 +140,27 @@ impl<E> TokioEventSender<E> {
             .lock()
             .expect("Tokio event sender poisoned") = Some(error);
         true
+    }
+}
+
+impl<E> Drop for TokioEventSender<E> {
+    fn drop(&mut self) {
+        let mut state = self.state.lock().expect("event channel poisoned");
+        state.sender_alive = false;
+        let waker = state.waker.take();
+        drop(state);
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+    }
+}
+
+impl<E> Drop for TokioEventReceiver<E> {
+    fn drop(&mut self) {
+        self.state
+            .lock()
+            .expect("event channel poisoned")
+            .receiver_alive = false;
     }
 }
 
@@ -144,11 +197,11 @@ mod tests {
         }
         assert!(sender.send(256, || 999));
         for event in 0..EventReceiverCapacity::VALUE {
-            let _ = event;
-            assert!(poll(&mut receiver).is_ready());
+            assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(value))) if value == event));
         }
         assert!(sender.send(257, || 999));
-        std::hint::black_box(poll(&mut receiver).is_ready());
+        assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(999)))));
+        assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(257)))));
     }
 
     #[test]
@@ -162,7 +215,11 @@ mod tests {
         for _ in 0..EventReceiverCapacity::VALUE {
             assert!(poll(&mut receiver).is_ready());
         }
-        std::hint::black_box(poll(&mut receiver).is_ready());
+        assert!(matches!(
+            poll(&mut receiver),
+            Poll::Ready(Some(Err(net_lattice_core::Error::InvalidState)))
+        ));
+        assert!(matches!(poll(&mut receiver), Poll::Ready(None)));
     }
 
     #[test]
@@ -236,7 +293,35 @@ mod tests {
     #[test]
     fn poll_recv_reports_pending_while_connected_and_empty() {
         let (_sender, mut receiver) = TokioEventReceiver::<u32>::bounded();
-        std::hint::black_box(poll(&mut receiver).is_pending());
+        assert!(poll(&mut receiver).is_pending());
+    }
+
+    #[test]
+    fn waiting_receiver_wakes_on_send_and_sender_drop() {
+        struct Counter(AtomicUsize);
+        impl std::task::Wake for Counter {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let counter = Arc::new(Counter(AtomicUsize::new(0)));
+        let waker = std::task::Waker::from(Arc::clone(&counter));
+        let mut cx = Context::from_waker(&waker);
+        let (sender, mut receiver) = TokioEventReceiver::bounded();
+        assert!(Pin::new(&mut receiver).poll_recv(&mut cx).is_pending());
+        assert!(sender.send(7, || 0));
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            Pin::new(&mut receiver).poll_recv(&mut cx),
+            Poll::Ready(Some(Ok(7)))
+        ));
+        assert!(Pin::new(&mut receiver).poll_recv(&mut cx).is_pending());
+        drop(sender);
+        assert_eq!(counter.0.load(Ordering::SeqCst), 2);
+        assert!(matches!(
+            Pin::new(&mut receiver).poll_recv(&mut cx),
+            Poll::Ready(None)
+        ));
     }
 
     fn exercise_sender_paths<E: Copy + Send + 'static>(event: E, resync: E) {

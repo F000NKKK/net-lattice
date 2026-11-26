@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The macOS backend no longer creates an internal Tokio runtime for its
   synchronous route and neighbor operations.
+- The Windows backend no longer creates an internal Tokio runtime for its
+  synchronous IP Helper operations.
+- The optional native event channel no longer depends on Tokio. Its existing
+  public type and trait names remain available for compatibility.
 
 ## [1.1.0] - 2026-11-18
 

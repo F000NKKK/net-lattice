@@ -31,7 +31,7 @@ Executor-independent asynchronous event-stream adapter for
 - ✅ `EventStream<E>`, a `futures::Stream<Item = Result<E>>` surface;
 - ✅ adaptation of blocking `EventReceiver` transports using one worker
   thread;
-- ✅ direct wrapping of backend-native Tokio receivers;
+- ✅ direct wrapping of backend-native event receivers;
 - ✅ deterministic shutdown when the stream is dropped.
 
 ## 📦 Installation
@@ -62,9 +62,8 @@ where
 
 The adapter does not select an async runtime. A blocking receiver uses a
 dedicated worker because `std::sync::mpsc::Receiver` cannot register a waker;
-a native Tokio receiver is exposed without that worker. The platform crate's
-async event channel currently depends on Tokio's synchronization primitives,
-even when the stream is polled by another executor.
+a native event receiver is exposed without that worker. The platform crate's
+async event channel does not depend on Tokio or another executor.
 
 ## 📖 Documentation
 

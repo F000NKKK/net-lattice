@@ -53,10 +53,10 @@ pub use snapshot_provider::SnapshotProvider;
 #[cfg(feature = "async")]
 pub use tokio_event_provider::{TokioEventReceiver, TokioEventSender};
 
-/// Backend contract for native Tokio-based event delivery.
+/// Backend contract for native asynchronous event delivery.
 ///
 /// Implementations can expose operating-system notification mechanisms
-/// directly through a Tokio-aware receiver without routing events through a
+/// directly through a waker-aware receiver without routing events through a
 /// synchronous [`EventReceiver`] and a blocking adapter thread.
 ///
 /// This trait is intended for backend implementations. Applications normally
@@ -70,7 +70,7 @@ pub trait TokioEventProvider {
     /// The filter type accepted when creating a native watcher.
     type EventFilter;
 
-    /// Creates a native Tokio-based watcher using `filter`.
+    /// Creates a native asynchronous watcher using `filter`.
     ///
     /// This method is intended for backend integration. Applications normally
     /// use `Lattice::watch_async`. The returned receiver owns the native
