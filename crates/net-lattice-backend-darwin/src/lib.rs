@@ -109,21 +109,17 @@ impl Drop for DarwinWatch {
 /// The BSD/macOS route socket-backed implementation of Net Lattice's provider
 /// traits.
 pub struct DarwinBackend {
-    runtime: tokio::runtime::Runtime,
     fd: i32,
 }
 
 impl DarwinBackend {
     /// Creates a macOS PF_ROUTE-backed network backend.
     pub fn new() -> Result<Self> {
-        let runtime =
-            tokio::runtime::Runtime::new().map_err(|err| Error::Platform(io_error_code(&err)))?;
-        let _guard = runtime.enter();
         let fd = unsafe { libc::socket(libc::PF_ROUTE, libc::SOCK_RAW, libc::AF_UNSPEC) };
         if fd < 0 {
             return Err(Error::Platform(io_error_code(&io::Error::last_os_error())));
         }
-        Ok(Self { runtime, fd })
+        Ok(Self { fd })
     }
 }
 
@@ -721,24 +717,22 @@ impl RouteProvider for DarwinBackend {
     type Route = Route;
 
     fn routes(&self) -> Result<Vec<Self::Route>> {
-        self.runtime.block_on(async {
-            let buf = dump_routing_table()?;
+        let buf = dump_routing_table()?;
 
-            let mut routes = Vec::new();
-            let mut offset = 0usize;
-            while offset + mem::size_of::<libc::rt_msghdr>() <= buf.len() {
-                let hdr = unsafe { &*(buf.as_ptr().add(offset) as *const libc::rt_msghdr) };
-                let step = hdr.rtm_msglen as usize;
-                if step == 0 {
-                    break;
-                }
-                if let Some(route) = unsafe { message_to_route(hdr) } {
-                    routes.push(route);
-                }
-                offset += step;
+        let mut routes = Vec::new();
+        let mut offset = 0usize;
+        while offset + mem::size_of::<libc::rt_msghdr>() <= buf.len() {
+            let hdr = unsafe { &*(buf.as_ptr().add(offset) as *const libc::rt_msghdr) };
+            let step = hdr.rtm_msglen as usize;
+            if step == 0 {
+                break;
             }
-            Ok(routes)
-        })
+            if let Some(route) = unsafe { message_to_route(hdr) } {
+                routes.push(route);
+            }
+            offset += step;
+        }
+        Ok(routes)
     }
 }
 
@@ -746,17 +740,13 @@ impl RouteMutator for DarwinBackend {
     type RouteConfig = RouteConfig;
 
     fn add_route(&self, route: Self::RouteConfig) -> Result<()> {
-        self.runtime.block_on(async {
-            let message = build_add_message(&route)?;
-            send_route_request(self.fd, &message, RTM_SEQ_ADD)
-        })
+        let message = build_add_message(&route)?;
+        send_route_request(self.fd, &message, RTM_SEQ_ADD)
     }
 
     fn remove_route(&self, route: Self::RouteConfig) -> Result<()> {
-        self.runtime.block_on(async {
-            let message = build_delete_message(&route)?;
-            send_route_request(self.fd, &message, RTM_SEQ_DELETE)
-        })
+        let message = build_delete_message(&route)?;
+        send_route_request(self.fd, &message, RTM_SEQ_DELETE)
     }
 
     /// `false`: this backend's `build_add_message`/`build_delete_message`
@@ -1915,16 +1905,14 @@ impl NeighborMutator for DarwinBackend {
         let mac = neighbor.mac.octets();
         let sdl_type = interface_sdl_type(interface_index)?;
 
-        self.runtime.block_on(async {
-            let message = static_neighbor_add_request(
-                destination,
-                interface_index,
-                sdl_type,
-                mac,
-                RTM_SEQ_NEIGHBOR_ADD,
-            );
-            send_route_request(self.fd, &message, RTM_SEQ_NEIGHBOR_ADD)
-        })?;
+        let message = static_neighbor_add_request(
+            destination,
+            interface_index,
+            sdl_type,
+            mac,
+            RTM_SEQ_NEIGHBOR_ADD,
+        );
+        send_route_request(self.fd, &message, RTM_SEQ_NEIGHBOR_ADD)?;
 
         self.neighbors()?
             .into_iter()
@@ -1974,21 +1962,19 @@ impl NeighborMutator for DarwinBackend {
 
         let destination = ip_address_to_std(neighbor.address);
 
-        self.runtime.block_on(async {
-            let get_message =
-                static_neighbor_get_request(destination, interface_index, RTM_SEQ_NEIGHBOR_GET);
-            let reply = send_route_message(self.fd, &get_message, RTM_SEQ_NEIGHBOR_GET)?;
-            let reply_hdr = unsafe { &*(reply.as_ptr() as *const libc::rt_msghdr) };
-            let gateway = unsafe { extract_gateway_bytes(reply_hdr) }.ok_or(Error::NotFound)?;
+        let get_message =
+            static_neighbor_get_request(destination, interface_index, RTM_SEQ_NEIGHBOR_GET);
+        let reply = send_route_message(self.fd, &get_message, RTM_SEQ_NEIGHBOR_GET)?;
+        let reply_hdr = unsafe { &*(reply.as_ptr() as *const libc::rt_msghdr) };
+        let gateway = unsafe { extract_gateway_bytes(reply_hdr) }.ok_or(Error::NotFound)?;
 
-            let delete_message = static_neighbor_delete_request(
-                destination,
-                interface_index,
-                &gateway,
-                RTM_SEQ_NEIGHBOR_DELETE,
-            );
-            send_route_request(self.fd, &delete_message, RTM_SEQ_NEIGHBOR_DELETE)
-        })
+        let delete_message = static_neighbor_delete_request(
+            destination,
+            interface_index,
+            &gateway,
+            RTM_SEQ_NEIGHBOR_DELETE,
+        );
+        send_route_request(self.fd, &delete_message, RTM_SEQ_NEIGHBOR_DELETE)
     }
 }
 
@@ -2919,6 +2905,18 @@ mod tests {
             }),
             "expected a `lo0` interface classified as Loopback, got: {interfaces:?}"
         );
+    }
+
+    #[test]
+    fn synchronous_routes_work_inside_a_runtime() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("create test runtime");
+        runtime.block_on(async {
+            let backend = DarwinBackend::new().expect("open route socket inside runtime");
+            backend.routes().expect("read routes inside runtime");
+            drop(backend);
+        });
     }
 
     /// Keeps the runtime capability advertisement aligned with the provider

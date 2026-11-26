@@ -21,7 +21,7 @@ net-lattice-ip = { workspace = true }
 net-lattice-model = { workspace = true }
 net-lattice-platform = { workspace = true }
 
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-futures = { workspace = true }
-
 libc = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+tokio = { workspace = true }

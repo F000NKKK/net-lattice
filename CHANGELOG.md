@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The macOS backend no longer creates an internal Tokio runtime for its
+  synchronous route and neighbor operations.
+
 ## [1.1.0] - 2026-11-18
 
 ### Changed
