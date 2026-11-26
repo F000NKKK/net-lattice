@@ -3179,6 +3179,10 @@ mod tests {
         lattice
             .validate_plan(&plan)
             .expect("add-then-remove of the same target is a valid plan");
+        let mut restore = StaticNeighborRestore {
+            lattice: &lattice,
+            neighbor: Some(neighbor),
+        };
 
         let mut cancellation = |index, _: &Mutation| index == 1;
         let mut snapshot = |_, operation: &Mutation| lattice.snapshot_for_mutation(operation);
@@ -3203,15 +3207,16 @@ mod tests {
         ));
         assert!(matches!(report.rollback(), RollbackStatus::Completed));
 
-        let absent = !lattice
+        let remaining = lattice
             .neighbors()
             .expect("failed to read neighbors after compensation")
             .into_iter()
-            .any(|entry| entry.interface_index == interface.index && entry.address == target);
+            .find(|entry| entry.interface_index == interface.index && entry.address == target);
         assert!(
-            absent,
-            "compensation reported success but the static neighbor is still present"
+            remaining.is_none(),
+            "compensation reported success but the neighbor is still present: {remaining:?}"
         );
+        restore.neighbor = None;
     }
 
     /// Exercises interface configuration through the complete public facade:
