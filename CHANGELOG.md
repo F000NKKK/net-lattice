@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The Linux backend no longer depends on an async runtime in normal builds.
 - The synchronous-to-async event adapter now applies bounded backpressure
   instead of accumulating an unbounded intermediate queue.
+- Synchronous and asynchronous event receivers deliver an overflow resync
+  marker after buffered events even when no later event arrives.
 - The async adapter uses `futures-core` and `futures-channel` directly;
   `futures-executor` is only used for tests and examples.
 

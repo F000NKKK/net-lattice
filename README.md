@@ -331,9 +331,9 @@ ordinary event. Query the capability for every domain selected by the filter
 before watching; `Capability::MONITORING` means that all current domains are
 available.
 
-Facade event streams are bounded. If a consumer falls behind, the watcher records
-and delivers `Event::ResyncRequired { .. }` before a subsequent ordinary
-event instead of retaining an unbounded backlog. Re-read the affected
+Facade event streams are bounded. If a consumer falls behind, the watcher
+delivers `Event::ResyncRequired { .. }` after buffered events, even if no new
+event arrives, instead of retaining an unbounded backlog. Re-read the affected
 provider state before relying on subsequent events.
 The separate `net_lattice_async::from_receiver` adapter also uses a bounded
 intermediate queue; its source receiver determines overflow behavior.

@@ -14,8 +14,8 @@ pub struct EventSender<E> {
 }
 
 impl<E> EventSender<E> {
-    /// Never blocks a native callback. On overflow, records one resync event
-    /// that is delivered before a later ordinary event.
+    /// Never waits for queue capacity. On overflow, records one resync event
+    /// delivered after buffered events and before a later ordinary event.
     pub fn send(&self, event: E, resync: E) -> bool {
         let mut pending = self.pending_resync.lock().expect("event sender poisoned");
         if let Some(resync) = pending.take() {
@@ -54,8 +54,8 @@ impl<E> EventSender<E> {
 /// also drops any backend-owned subscription guard, allowing its native
 /// watcher to stop. If its producer shuts down, receive methods return
 /// [`Error::Disconnected`]. When a slow consumer fills the bounded queue,
-/// multiple dropped events are coalesced into one resynchronization event
-/// delivered before a later ordinary event.
+/// multiple dropped events are coalesced into a resynchronization event
+/// delivered after buffered events, even if no new event arrives.
 ///
 /// The receiver preserves the order in which its backend producer enqueues
 /// events, but makes no cross-domain ordering, causality, initial-snapshot,
@@ -69,6 +69,8 @@ impl<E> EventSender<E> {
 /// [`Self::recv`]. Iteration ends only after the watcher disconnects.
 pub struct EventReceiver<E> {
     receiver: mpsc::Receiver<Result<E>>,
+    pending_resync: Option<Arc<Mutex<Option<E>>>>,
+    deferred_error: Mutex<Option<Error>>,
     // Owns backend-specific cancellation state (for example, a Windows IP
     // Helper registration or a route-socket reader). It is intentionally
     // opaque: consumers only receive events, while dropping the receiver
@@ -99,13 +101,16 @@ impl<E> EventReceiver<E> {
     pub fn bounded_with_capacity(capacity: usize) -> (EventSender<E>, Self) {
         assert!(capacity > 0, "event queue capacity must be non-zero");
         let (sender, receiver) = mpsc::sync_channel(capacity);
+        let pending_resync = Arc::new(Mutex::new(None));
         (
             EventSender {
                 sender,
-                pending_resync: Arc::new(Mutex::new(None)),
+                pending_resync: Arc::clone(&pending_resync),
             },
             Self {
                 receiver,
+                pending_resync: Some(pending_resync),
+                deferred_error: Mutex::new(None),
                 _subscription: None,
             },
         )
@@ -119,6 +124,8 @@ impl<E> EventReceiver<E> {
     pub fn from_channel_receiver(receiver: mpsc::Receiver<Result<E>>) -> Self {
         Self {
             receiver,
+            pending_resync: None,
+            deferred_error: Mutex::new(None),
             _subscription: None,
         }
     }
@@ -142,6 +149,8 @@ impl<E> EventReceiver<E> {
     {
         Self {
             receiver,
+            pending_resync: None,
+            deferred_error: Mutex::new(None),
             _subscription: Some(Box::new(subscription)),
         }
     }
@@ -169,6 +178,9 @@ impl<E> EventReceiver<E> {
     /// and no further events can arrive. Other producer errors are propagated
     /// unchanged.
     pub fn recv(&self) -> Result<E> {
+        if let Some(event) = self.try_recv()? {
+            return Ok(event);
+        }
         match self.receiver.recv() {
             Ok(Ok(event)) => Ok(event),
             Ok(Err(error)) => Err(error),
@@ -184,11 +196,37 @@ impl<E> EventReceiver<E> {
     /// empty queue is not an error. Other producer errors are propagated
     /// unchanged.
     pub fn try_recv(&self) -> Result<Option<E>> {
+        if let Some(error) = self
+            .deferred_error
+            .lock()
+            .expect("event receiver poisoned")
+            .take()
+        {
+            return Err(error);
+        }
+        let mut pending = self
+            .pending_resync
+            .as_ref()
+            .map(|pending| pending.lock().expect("event sender poisoned"));
         match self.receiver.try_recv() {
             Ok(Ok(event)) => Ok(Some(event)),
-            Ok(Err(error)) => Err(error),
-            Err(mpsc::TryRecvError::Empty) => Ok(None),
-            Err(mpsc::TryRecvError::Disconnected) => Err(Error::Disconnected),
+            Ok(Err(error)) => {
+                if let Some(event) = pending.as_mut().and_then(|pending| pending.take()) {
+                    *self.deferred_error.lock().expect("event receiver poisoned") = Some(error);
+                    Ok(Some(event))
+                } else {
+                    Err(error)
+                }
+            }
+            Err(error) => {
+                if let Some(event) = pending.as_mut().and_then(|pending| pending.take()) {
+                    return Ok(Some(event));
+                }
+                match error {
+                    mpsc::TryRecvError::Empty => Ok(None),
+                    mpsc::TryRecvError::Disconnected => Err(Error::Disconnected),
+                }
+            }
         }
     }
 
@@ -199,6 +237,9 @@ impl<E> EventReceiver<E> {
     /// the watcher has stopped and no further events can arrive. A timeout is
     /// not an error. Other producer errors are propagated unchanged.
     pub fn recv_timeout(&self, timeout: Duration) -> Result<Option<E>> {
+        if let Some(event) = self.try_recv()? {
+            return Ok(Some(event));
+        }
         match self.receiver.recv_timeout(timeout) {
             Ok(Ok(event)) => Ok(Some(event)),
             Ok(Err(error)) => Err(error),
@@ -295,6 +336,7 @@ mod tests {
         assert_eq!(receiver.recv().unwrap(), 1);
         assert!(sender.send_error(Error::InvalidState));
         assert!(sender.send(3, 99));
+        assert_eq!(receiver.recv().unwrap(), 99);
         assert!(receiver.recv().is_err());
     }
 
@@ -378,6 +420,27 @@ mod tests {
     }
 
     #[test]
+    fn overflow_is_reported_without_another_send() {
+        let (sender, receiver) = EventReceiver::bounded_with_capacity(1);
+        assert!(sender.send(1, 99));
+        assert!(sender.send(2, 99));
+        assert_eq!(receiver.recv().unwrap(), 1);
+        assert_eq!(receiver.try_recv().unwrap(), Some(99));
+        assert_eq!(receiver.try_recv().unwrap(), None);
+    }
+
+    #[test]
+    fn pending_resync_precedes_disconnect_and_timeout() {
+        let (sender, receiver) = EventReceiver::bounded_with_capacity(1);
+        assert!(sender.send(1, 99));
+        assert!(sender.send(2, 99));
+        drop(sender);
+        assert_eq!(receiver.recv_timeout(Duration::ZERO).unwrap(), Some(1));
+        assert_eq!(receiver.recv_timeout(Duration::ZERO).unwrap(), Some(99));
+        assert!(matches!(receiver.recv(), Err(Error::Disconnected)));
+    }
+
+    #[test]
     fn background_error_is_returned() {
         let (sender, receiver) = EventReceiver::<u32>::bounded();
         assert!(sender.send_error(Error::InvalidState));
@@ -425,6 +488,7 @@ mod tests {
         assert!(sender.send("fourth".into(), "resync".into()));
         assert_eq!(receiver.recv().unwrap(), "resync");
         assert!(sender.send_error(Error::InvalidState));
+        assert_eq!(receiver.recv().unwrap(), "resync");
         assert!(receiver.recv().is_err());
 
         let (sender, receiver) = EventReceiver::<String>::bounded();

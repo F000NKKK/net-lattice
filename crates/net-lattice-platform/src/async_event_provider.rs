@@ -1,10 +1,7 @@
 use std::any::Any;
 use std::collections::VecDeque;
 use std::pin::Pin;
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use net_lattice_core::Result;
@@ -15,10 +12,9 @@ use net_lattice_core::Result;
 /// contract. Backends use [`send`](Self::send) exactly as their synchronous
 /// counterparts use `EventSender`: when the consumer falls behind, one
 /// resynchronization event is scheduled instead of allowing unbounded memory
-/// growth.
+/// growth. The marker is delivered even if no later event arrives.
 pub struct AsyncEventSender<E> {
     state: Arc<Mutex<Channel<E>>>,
-    resync_pending: Arc<AtomicBool>,
     terminal_error: Arc<Mutex<Option<net_lattice_core::Error>>>,
 }
 
@@ -36,6 +32,8 @@ struct Channel<E> {
     queue: VecDeque<E>,
     sender_alive: bool,
     receiver_alive: bool,
+    pending_resync: Option<E>,
+    generating_resync: bool,
     waker: Option<Waker>,
 }
 
@@ -46,14 +44,14 @@ impl<E> AsyncEventReceiver<E> {
             queue: VecDeque::new(),
             sender_alive: true,
             receiver_alive: true,
+            pending_resync: None,
+            generating_resync: false,
             waker: None,
         }));
-        let pending = Arc::new(AtomicBool::new(false));
         let terminal_error = Arc::new(Mutex::new(None));
         (
             AsyncEventSender {
                 state: Arc::clone(&state),
-                resync_pending: pending,
                 terminal_error: Arc::clone(&terminal_error),
             },
             Self {
@@ -79,6 +77,9 @@ impl<E> AsyncEventReceiver<E> {
         if let Some(event) = state.queue.pop_front() {
             return Poll::Ready(Some(Ok(event)));
         }
+        if let Some(event) = state.pending_resync.take() {
+            return Poll::Ready(Some(Ok(event)));
+        }
         if state.sender_alive {
             state.waker = Some(cx.waker().clone());
             return Poll::Pending;
@@ -97,23 +98,57 @@ impl<E> AsyncEventReceiver<E> {
 impl<E> AsyncEventSender<E> {
     /// Attempts to enqueue an event without waiting for queue capacity.
     pub fn send(&self, event: E, resync: impl FnOnce() -> E) -> bool {
-        let resync = self
-            .resync_pending
-            .swap(false, Ordering::AcqRel)
-            .then(resync);
         let mut state = self.state.lock().expect("event channel poisoned");
-        if !state.receiver_alive {
+        if !state.receiver_alive || !state.sender_alive {
             return false;
         }
-        if let Some(resync) = resync {
+        // Another producer is constructing the marker outside the lock. Its
+        // marker covers this event too, preserving ordering without invoking
+        // caller code while holding the channel mutex.
+        if state.generating_resync {
+            return true;
+        }
+        if let Some(resync) = state.pending_resync.take() {
             if state.queue.len() == EventReceiverCapacity::VALUE {
-                self.resync_pending.store(true, Ordering::Release);
+                state.pending_resync = Some(resync);
                 return true;
             }
             state.queue.push_back(resync);
         }
         if state.queue.len() == EventReceiverCapacity::VALUE {
-            self.resync_pending.store(true, Ordering::Release);
+            state.generating_resync = true;
+            drop(state);
+            let marker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(resync));
+            let mut state = self.state.lock().expect("event channel poisoned");
+            state.generating_resync = false;
+            match marker {
+                Ok(marker) => {
+                    if !state.receiver_alive {
+                        return false;
+                    }
+                    state.pending_resync = Some(marker);
+                }
+                Err(panic) => {
+                    *self
+                        .terminal_error
+                        .lock()
+                        .expect("async event sender poisoned") =
+                        Some(net_lattice_core::Error::InvalidState);
+                    state.sender_alive = false;
+                    let waker = state.waker.take();
+                    drop(state);
+                    if let Some(waker) = waker {
+                        waker.wake();
+                    }
+                    std::panic::resume_unwind(panic);
+                }
+            }
+            let waker = state.waker.take();
+            drop(state);
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+            return true;
         } else {
             state.queue.push_back(event);
         }
@@ -127,14 +162,11 @@ impl<E> AsyncEventSender<E> {
 
     /// Reports a terminal backend error if the consumer is still connected.
     pub fn send_error(&self, error: net_lattice_core::Error) -> bool {
-        if !self
-            .state
-            .lock()
-            .expect("event channel poisoned")
-            .receiver_alive
-        {
+        let state = self.state.lock().expect("event channel poisoned");
+        if !state.receiver_alive || !state.sender_alive {
             return false;
         }
+        drop(state);
         *self
             .terminal_error
             .lock()
@@ -202,6 +234,99 @@ mod tests {
         assert!(sender.send(257, || 999));
         assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(999)))));
         assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(257)))));
+    }
+
+    #[test]
+    fn overflow_is_reported_even_if_no_more_events_arrive() {
+        let (sender, mut receiver) = AsyncEventReceiver::bounded();
+        for event in 0..EventReceiverCapacity::VALUE {
+            assert!(sender.send(event, || 999));
+        }
+        assert!(sender.send(256, || 999));
+        for event in 0..EventReceiverCapacity::VALUE {
+            assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(value))) if value == event));
+        }
+        assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(999)))));
+        assert!(poll(&mut receiver).is_pending());
+    }
+
+    #[test]
+    fn resync_factory_can_reenter_sender_without_locking_up() {
+        let (sender, mut receiver) = AsyncEventReceiver::bounded();
+        for event in 0..EventReceiverCapacity::VALUE {
+            assert!(sender.send(event, || 999));
+        }
+        assert!(sender.send(256, || {
+            assert!(sender.send(257, || 998));
+            999
+        }));
+        for _ in 0..EventReceiverCapacity::VALUE {
+            assert!(poll(&mut receiver).is_ready());
+        }
+        assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(999)))));
+        assert!(poll(&mut receiver).is_pending());
+    }
+
+    #[test]
+    fn concurrent_events_during_resync_generation_are_covered_by_marker() {
+        struct WakeCounter(AtomicUsize);
+        impl std::task::Wake for WakeCounter {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let (sender, mut receiver) = AsyncEventReceiver::bounded();
+        let sender = Arc::new(sender);
+        for event in 0..EventReceiverCapacity::VALUE {
+            assert!(sender.send(event, || 999));
+        }
+        let (started, started_rx) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let worker_sender = Arc::clone(&sender);
+        let worker = std::thread::spawn(move || {
+            worker_sender.send(256, || {
+                started.send(()).unwrap();
+                release_rx.recv().unwrap();
+                999
+            })
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        for _ in 0..EventReceiverCapacity::VALUE {
+            assert!(poll(&mut receiver).is_ready());
+        }
+        let wake_count = Arc::new(WakeCounter(AtomicUsize::new(0)));
+        let waker = std::task::Waker::from(Arc::clone(&wake_count));
+        let mut context = Context::from_waker(&waker);
+        assert!(Pin::new(&mut receiver).poll_recv(&mut context).is_pending());
+        assert!(sender.send(257, || 998));
+        release.send(()).unwrap();
+        assert!(worker.join().unwrap());
+        assert_eq!(wake_count.0.load(Ordering::SeqCst), 1);
+        assert!(matches!(poll(&mut receiver), Poll::Ready(Some(Ok(999)))));
+        assert!(poll(&mut receiver).is_pending());
+    }
+
+    #[test]
+    fn panicking_resync_factory_ends_stream_with_an_error() {
+        let (sender, mut receiver) = AsyncEventReceiver::bounded();
+        for event in 0..EventReceiverCapacity::VALUE {
+            assert!(sender.send(event, || 999));
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sender.send(256, || panic!("resync failed"));
+        }));
+        assert!(result.is_err());
+        for _ in 0..EventReceiverCapacity::VALUE {
+            assert!(poll(&mut receiver).is_ready());
+        }
+        assert!(matches!(
+            poll(&mut receiver),
+            Poll::Ready(Some(Err(net_lattice_core::Error::InvalidState)))
+        ));
+        assert!(matches!(poll(&mut receiver), Poll::Ready(None)));
+        assert!(!sender.send(1, || 999));
     }
 
     #[test]
