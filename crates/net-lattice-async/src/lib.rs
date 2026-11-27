@@ -44,8 +44,10 @@ enum EventStreamReceiver<E> {
 /// Bridges a synchronous event receiver to a waker-aware stream.
 ///
 /// The returned stream owns the receiver. Dropping it requests worker shutdown
-/// and joins the thread; shutdown latency is at most 50 ms, after which the
-/// receiver is dropped and its backend subscription is cancelled.
+/// and normally joins the thread; the worker checks for shutdown at least every
+/// 50 ms and then drops the receiver and its backend subscription. If the
+/// stream is dropped from the worker itself, the worker exits without joining
+/// itself.
 ///
 /// The intermediate queue is bounded. When it is full, the worker waits for
 /// the consumer; the source receiver's own overflow policy then applies.
@@ -138,7 +140,11 @@ impl<E> Drop for EventStream<E> {
         self.stop.store(true, Ordering::Release);
         if let Some(worker) = self.worker.take() {
             worker.thread().unpark();
-            let _ = worker.join();
+            // A consumer's waker may synchronously drop the stream on the
+            // worker itself. In that case it cannot join its own thread.
+            if worker.thread().id() != thread::current().id() {
+                let _ = worker.join();
+            }
         }
     }
 }
@@ -264,5 +270,27 @@ mod tests {
             worker: Some(worker),
         };
         drop(stream);
+    }
+
+    #[test]
+    fn stream_can_be_dropped_on_its_own_worker_thread() {
+        let (transfer, receive) = std::sync::mpsc::sync_channel::<EventStream<u8>>(1);
+        let (finished, completion) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            drop(receive.recv().unwrap());
+            finished.send(()).unwrap();
+        });
+        let (_sender, receiver) = AsyncEventReceiver::<u8>::bounded();
+        transfer
+            .send(EventStream {
+                receiver: EventStreamReceiver::Native(receiver),
+                stop: Arc::new(AtomicBool::new(false)),
+                worker: Some(worker),
+            })
+            .ok()
+            .unwrap();
+        completion
+            .recv_timeout(Duration::from_secs(1))
+            .expect("worker should not join itself");
     }
 }
