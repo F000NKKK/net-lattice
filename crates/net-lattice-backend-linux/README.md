@@ -20,6 +20,10 @@
 
 ## 📖 Overview
 
+This README describes unreleased `main` changes. The published `1.1` backend
+still uses an internal Tokio runtime; use the docs.rs page for the installed
+version.
+
 Linux backend for [Net Lattice](https://github.com/F000NKKK/net-lattice)
 using Netlink and `/etc/resolv.conf` mechanisms. `LinuxBackend` implements
 native inspection, mutation, and monitoring behind the generic

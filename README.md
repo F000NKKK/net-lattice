@@ -78,6 +78,10 @@ shell commands, or ad hoc string parsing.
 > desired-state/diff/apply, and whole-system `CurrentState` snapshots on
 > Linux, Windows, and macOS.
 
+The documentation on `main` also describes unreleased changes. In particular,
+the runtime-independent backends and renamed backend async API are not yet in
+the published `1.1` crates; consult the documentation for your installed version.
+
 ## 🌟 Key Features
 
 ### Inspection

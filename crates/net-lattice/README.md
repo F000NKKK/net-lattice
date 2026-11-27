@@ -25,6 +25,10 @@
 
 ## 📖 Overview
 
+This README describes unreleased `main` changes as well as the published API.
+The `1.1` crates on crates.io still have the previous runtime dependencies and
+backend async API; consult the docs.rs page for the installed version.
+
 Cross-platform network inspection and configuration through one strongly
 typed Rust API. This is the application-facing crate of
 [Net Lattice](https://github.com/F000NKKK/net-lattice): it selects the

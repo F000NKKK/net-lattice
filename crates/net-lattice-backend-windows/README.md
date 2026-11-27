@@ -20,6 +20,10 @@
 
 ## 📖 Overview
 
+This README describes unreleased `main` changes. The published `1.1` backend
+still creates an internal Tokio runtime; use the docs.rs page for the installed
+version.
+
 Windows backend for [Net Lattice](https://github.com/F000NKKK/net-lattice)
 using the IP Helper API. `WindowsBackend` implements the generic
 `net-lattice-platform` contracts through native Windows APIs.

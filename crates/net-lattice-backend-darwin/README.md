@@ -21,6 +21,10 @@
 
 ## 📖 Overview
 
+This README describes unreleased `main` changes. The published `1.1` backend
+still creates an internal Tokio runtime; use the docs.rs page for the installed
+version.
+
 macOS backend for [Net Lattice](https://github.com/F000NKKK/net-lattice)
 using BSD routing sockets, `getifaddrs`, and native ioctls. `DarwinBackend`
 implements the generic `net-lattice-platform` contracts.

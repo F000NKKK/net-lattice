@@ -18,6 +18,10 @@
 
 ## 📖 Overview
 
+This README describes unreleased `main` changes. The published `1.1` crate
+has a different async provider API and depends on Tokio when `async` is enabled.
+Use the docs.rs page for the installed version.
+
 Generic provider traits and runtime capability contracts between
 [Net Lattice](https://github.com/F000NKKK/net-lattice)'s public facade and
 native platform backends.
