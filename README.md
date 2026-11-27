@@ -331,10 +331,12 @@ ordinary event. Query the capability for every domain selected by the filter
 before watching; `Capability::MONITORING` means that all current domains are
 available.
 
-Event streams are bounded. If a consumer falls behind, the watcher records
+Facade event streams are bounded. If a consumer falls behind, the watcher records
 and delivers `Event::ResyncRequired { .. }` before a subsequent ordinary
 event instead of retaining an unbounded backlog. Re-read the affected
 provider state before relying on subsequent events.
+The separate `net_lattice_async::from_receiver` adapter has an unbounded
+intermediate queue and does not provide this memory bound.
 
 Monitoring capabilities describe actual native delivery. Linux Netlink and
 macOS PF_ROUTE expose route, interface, interface-address, and neighbor

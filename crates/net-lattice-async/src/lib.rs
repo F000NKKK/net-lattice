@@ -46,6 +46,10 @@ enum EventStreamReceiver<E> {
 /// The returned stream owns the receiver. Dropping it requests worker shutdown
 /// and joins the thread; shutdown latency is at most 50 ms, after which the
 /// receiver is dropped and its backend subscription is cancelled.
+///
+/// This bridge uses an unbounded intermediate queue. If the consumer is
+/// slower than the producer for an extended period, memory usage can grow.
+/// The native receiver used by `Lattice::watch_async` has a bounded queue.
 pub fn from_receiver<E>(receiver: EventReceiver<E>) -> EventStream<E>
 where
     E: Send + 'static,

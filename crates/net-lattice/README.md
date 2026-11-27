@@ -168,7 +168,7 @@ all deliverable); `watch_filtered` needs each selected domain's capability.
 Windows rejects neighbor and all-domain subscriptions with
 `Error::Unsupported` instead of returning a stream that omits neighbors;
 `watch_with_additions` opts into backend-reported `Addition`s,
-lesser-quality workarounds such as Windows neighbor polling. Streams are
+lesser-quality workarounds such as Windows neighbor polling. Facade streams are
 bounded: a slow consumer receives `Event::ResyncRequired` and should re-read
 state ([event delivery](https://github.com/F000NKKK/net-lattice#event-delivery)).
 

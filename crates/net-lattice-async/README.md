@@ -65,6 +65,10 @@ dedicated worker because `std::sync::mpsc::Receiver` cannot register a waker;
 a native event receiver is exposed without that worker. The platform crate's
 async event channel does not depend on Tokio or another executor.
 
+`from_receiver` forwards into an unbounded intermediate queue: sustained
+producer traffic faster than the consumer can increase memory usage. The
+facade's `Lattice::watch_async` uses the bounded native receiver instead.
+
 ## 📖 Documentation
 
 - **API reference**: [docs.rs/net-lattice-async](https://docs.rs/net-lattice-async)
