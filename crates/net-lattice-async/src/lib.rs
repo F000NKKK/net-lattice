@@ -18,8 +18,8 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
-use futures::Stream;
-use futures::channel::mpsc::{UnboundedReceiver, unbounded};
+use futures_channel::mpsc::{Receiver, Sender, channel};
+use futures_core::Stream;
 pub use net_lattice_core::{Error, Result};
 use net_lattice_platform::{AsyncEventReceiver, EventReceiver};
 
@@ -37,7 +37,7 @@ pub struct EventStream<E> {
     worker: Option<thread::JoinHandle<()>>,
 }
 enum EventStreamReceiver<E> {
-    Futures(UnboundedReceiver<Result<E>>),
+    Futures(Receiver<Result<E>>),
     Native(AsyncEventReceiver<E>),
 }
 
@@ -47,14 +47,13 @@ enum EventStreamReceiver<E> {
 /// and joins the thread; shutdown latency is at most 50 ms, after which the
 /// receiver is dropped and its backend subscription is cancelled.
 ///
-/// This bridge uses an unbounded intermediate queue. If the consumer is
-/// slower than the producer for an extended period, memory usage can grow.
-/// The native receiver used by `Lattice::watch_async` has a bounded queue.
+/// The intermediate queue is bounded. When it is full, the worker waits for
+/// the consumer; the source receiver's own overflow policy then applies.
 pub fn from_receiver<E>(receiver: EventReceiver<E>) -> EventStream<E>
 where
     E: Send + 'static,
 {
-    let (sender, async_receiver) = unbounded();
+    let (sender, async_receiver) = channel(256);
     let stop = Arc::new(AtomicBool::new(false));
     let worker_stop = Arc::clone(&stop);
     let worker = thread::spawn(move || forward_receiver(receiver, sender, worker_stop));
@@ -71,7 +70,7 @@ where
 /// directly regression-tested without exposing another public API surface.
 fn forward_receiver<E>(
     receiver: EventReceiver<E>,
-    sender: futures::channel::mpsc::UnboundedSender<Result<E>>,
+    mut sender: Sender<Result<E>>,
     stop: Arc<AtomicBool>,
 ) where
     E: Send + 'static,
@@ -79,15 +78,31 @@ fn forward_receiver<E>(
     while !stop.load(Ordering::Acquire) {
         match receiver.recv_timeout(Duration::from_millis(50)) {
             Ok(Some(event)) => {
-                if sender.unbounded_send(Ok(event)).is_err() {
+                if !forward_item(&mut sender, Ok(event), &stop) {
                     break;
                 }
             }
             Ok(None) => {}
             Err(error) => {
-                let _ = sender.unbounded_send(Err(error));
+                let _ = forward_item(&mut sender, Err(error), &stop);
                 break;
             }
+        }
+    }
+}
+
+fn forward_item<E>(sender: &mut Sender<Result<E>>, mut item: Result<E>, stop: &AtomicBool) -> bool {
+    loop {
+        if stop.load(Ordering::Acquire) {
+            return false;
+        }
+        match sender.try_send(item) {
+            Ok(()) => return true,
+            Err(error) if error.is_full() => {
+                item = error.into_inner();
+                thread::park_timeout(Duration::from_millis(50));
+            }
+            Err(_) => return false,
         }
     }
 }
@@ -105,10 +120,16 @@ impl<E> Stream for EventStream<E> {
     type Item = Result<E>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match &mut self.receiver {
+        let result = match &mut self.receiver {
             EventStreamReceiver::Futures(receiver) => Pin::new(receiver).poll_next(cx),
             EventStreamReceiver::Native(receiver) => Pin::new(receiver).poll_recv(cx),
+        };
+        if result.is_ready()
+            && let Some(worker) = &self.worker
+        {
+            worker.thread().unpark();
         }
+        result
     }
 }
 
@@ -116,6 +137,7 @@ impl<E> Drop for EventStream<E> {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         if let Some(worker) = self.worker.take() {
+            worker.thread().unpark();
             let _ = worker.join();
         }
     }
@@ -165,9 +187,39 @@ mod tests {
     }
 
     #[test]
+    fn dropping_a_full_stream_stops_a_blocked_worker() {
+        let (mut sender, receiver) = channel::<Result<u8>>(1);
+        while sender.try_send(Ok(1)).is_ok() {}
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::spawn(move || {
+            let _ = forward_item(&mut sender, Ok(2), &worker_stop);
+        });
+        let stream = EventStream {
+            receiver: EventStreamReceiver::Futures(receiver),
+            stop,
+            worker: Some(worker),
+        };
+        drop(stream);
+    }
+
+    #[test]
+    fn full_queue_retains_the_event_until_the_consumer_drains_it() {
+        let (mut sender, mut receiver) = channel::<Result<u8>>(1);
+        while sender.try_send(Ok(1)).is_ok() {}
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker = thread::spawn(move || forward_item(&mut sender, Ok(2), &stop));
+        assert_eq!(receiver.try_recv().unwrap().unwrap(), 1);
+        worker.thread().unpark();
+        assert!(worker.join().unwrap());
+        let remaining: Vec<_> = futures::executor::block_on(receiver.collect());
+        assert!(remaining.into_iter().any(|event| matches!(event, Ok(2))));
+    }
+
+    #[test]
     fn worker_stops_when_its_async_consumer_is_already_gone() {
         let (input, receiver) = EventReceiver::bounded();
-        let (output, async_receiver) = unbounded::<Result<u8>>();
+        let (output, async_receiver) = channel::<Result<u8>>(1);
         drop(async_receiver);
         assert!(input.send(7, 0));
         forward_receiver(receiver, output, Arc::new(AtomicBool::new(false)));
@@ -176,7 +228,7 @@ mod tests {
     #[test]
     fn worker_rechecks_an_empty_receiver_until_shutdown_is_requested() {
         let (_sender, receiver) = EventReceiver::<u8>::bounded();
-        let (output, _async_receiver) = unbounded::<Result<u8>>();
+        let (output, _async_receiver) = channel::<Result<u8>>(1);
         let stop = Arc::new(AtomicBool::new(false));
         let stop_later = Arc::clone(&stop);
         std::thread::spawn(move || {
@@ -189,7 +241,7 @@ mod tests {
     #[test]
     fn adapter_handles_immediate_shutdown_and_native_stream_without_worker() {
         let (_sender, receiver) = EventReceiver::<u8>::bounded();
-        let (output, _async_receiver) = unbounded::<Result<u8>>();
+        let (output, _async_receiver) = channel::<Result<u8>>(1);
         forward_receiver(receiver, output, Arc::new(AtomicBool::new(true)));
 
         let (_sender, receiver) = AsyncEventReceiver::<u8>::bounded();

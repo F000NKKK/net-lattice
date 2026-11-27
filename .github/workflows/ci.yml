@@ -70,7 +70,7 @@ jobs:
           set -euo pipefail
           for target in x86_64-unknown-linux-gnu x86_64-pc-windows-msvc aarch64-apple-darwin; do
             tree=$(cargo tree -p net-lattice --all-features --target "$target" --edges normal --prefix none)
-            if printf '%s\n' "$tree" | grep -E '^(tokio(-[^ ]*)?|async-io|async-std|async-executor|async-global-executor|smol|glommio|monoio|compio) v'; then
+            if printf '%s\n' "$tree" | grep -E '^(tokio(-[^ ]*)?|futures-executor|async-io|async-std|async-executor|async-global-executor|smol|glommio|monoio|compio) v'; then
               echo "Unexpected runtime dependency for $target" >&2
               exit 1
             fi

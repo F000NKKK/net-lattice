@@ -16,4 +16,8 @@ readme = "README.md"
 net-lattice-core = { workspace = true }
 net-lattice-platform = { workspace = true, features = ["async"] }
 
+futures-core = "0.3.34"
+futures-channel = "0.3.34"
+
+[dev-dependencies]
 futures = { workspace = true }

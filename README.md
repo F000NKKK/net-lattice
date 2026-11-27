@@ -335,8 +335,8 @@ Facade event streams are bounded. If a consumer falls behind, the watcher record
 and delivers `Event::ResyncRequired { .. }` before a subsequent ordinary
 event instead of retaining an unbounded backlog. Re-read the affected
 provider state before relying on subsequent events.
-The separate `net_lattice_async::from_receiver` adapter has an unbounded
-intermediate queue and does not provide this memory bound.
+The separate `net_lattice_async::from_receiver` adapter also uses a bounded
+intermediate queue; its source receiver determines overflow behavior.
 
 Monitoring capabilities describe actual native delivery. Linux Netlink and
 macOS PF_ROUTE expose route, interface, interface-address, and neighbor
