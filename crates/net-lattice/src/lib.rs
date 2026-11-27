@@ -2926,6 +2926,30 @@ mod tests {
         }
     }
 
+    /// The OS may create a new dynamic entry after the configured entry was
+    /// removed. It must not still contain either a permanent entry or the
+    /// test's configured link-layer address.
+    fn static_mapping_removed(observed: Option<&NeighborEntry>, configured: MacAddress) -> bool {
+        observed.is_none_or(|entry| {
+            entry.state != NeighborState::Permanent && entry.mac != Some(configured)
+        })
+    }
+
+    #[test]
+    fn static_mapping_check_rejects_remaining_configured_or_permanent_entries() {
+        let entry = ipv6_neighbor();
+        let configured = entry.mac.unwrap();
+        assert!(static_mapping_removed(None, configured));
+        assert!(!static_mapping_removed(Some(&entry), configured));
+        let unresolved = entry.clone().with_state(NeighborState::Failed);
+        assert!(!static_mapping_removed(Some(&unresolved), configured));
+        let other_mac = MacAddress::new([2, 0, 0, 0, 0, 99]);
+        let dynamic = unresolved.with_mac(other_mac);
+        assert!(static_mapping_removed(Some(&dynamic), configured));
+        let permanent = dynamic.with_state(NeighborState::Permanent);
+        assert!(!static_mapping_removed(Some(&permanent), configured));
+    }
+
     /// Picks a non-loopback, administratively-up interface with an assigned
     /// IPv4 address, plus an unused address in that same on-link subnet, for
     /// native static-neighbor tests.
@@ -3213,8 +3237,8 @@ mod tests {
             .into_iter()
             .find(|entry| entry.interface_index == interface.index && entry.address == target);
         assert!(
-            remaining.is_none(),
-            "compensation reported success but the neighbor is still present: {remaining:?}"
+            static_mapping_removed(remaining.as_ref(), neighbor.mac),
+            "compensation reported success but the configured static mapping remains: {remaining:?}"
         );
         restore.neighbor = None;
     }

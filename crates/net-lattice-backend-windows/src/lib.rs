@@ -64,7 +64,7 @@ use windows::Win32::NetworkManagement::Ndis::{
 use windows::Win32::Networking::WinSock::{
     ADDRESS_FAMILY, AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN_ADDR_0_0, IN6_ADDR, IN6_ADDR_0,
     NL_NEIGHBOR_STATE, NlnsDelay, NlnsIncomplete, NlnsPermanent, NlnsProbe, NlnsReachable,
-    NlnsStale, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_IN6_0, SOCKADDR_INET,
+    NlnsStale, NlnsUnreachable, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_IN6_0, SOCKADDR_INET,
 };
 use windows::core::{GUID, PWSTR};
 
@@ -1009,6 +1009,7 @@ fn neighbor_state_to_state(state: NL_NEIGHBOR_STATE) -> NeighborState {
         s if s == NlnsStale => NeighborState::Stale,
         s if s == NlnsDelay => NeighborState::Delay,
         s if s == NlnsProbe => NeighborState::Probe,
+        s if s == NlnsUnreachable => NeighborState::Failed,
         s if s == NlnsPermanent => NeighborState::Permanent,
         _ => NeighborState::Unknown,
     }
@@ -1017,7 +1018,9 @@ fn neighbor_state_to_state(state: NL_NEIGHBOR_STATE) -> NeighborState {
 fn row_to_neighbor(row: &MIB_IPNET_ROW2) -> Option<NeighborEntry> {
     let address = unsafe { sockaddr_inet_to_ip(&row.Address) }.map(std_ip_to_ip_address)?;
 
-    let mac = if row.PhysicalAddressLength == 6 {
+    let unresolved = row.State == NlnsIncomplete
+        || (row.State == NlnsUnreachable && row.PhysicalAddress[..6] == [0; 6]);
+    let mac = if row.PhysicalAddressLength == 6 && !unresolved {
         let mut octets = [0u8; 6];
         octets.copy_from_slice(&row.PhysicalAddress[..6]);
         Some(MacAddress::new(octets))
@@ -2594,9 +2597,30 @@ mod tests {
         assert_eq!(neighbor_state_to_state(NlnsDelay), NeighborState::Delay);
         assert_eq!(neighbor_state_to_state(NlnsProbe), NeighborState::Probe);
         assert_eq!(
+            neighbor_state_to_state(NlnsUnreachable),
+            NeighborState::Failed
+        );
+        assert_eq!(
             neighbor_state_to_state(NlnsPermanent),
             NeighborState::Permanent
         );
+    }
+
+    #[test]
+    fn unresolved_neighbor_rows_do_not_expose_placeholder_macs() {
+        let mut row = static_neighbor_create_row(7, "192.0.2.17".parse().unwrap(), [0; 6]);
+        row.State = NlnsUnreachable;
+        let observed = row_to_neighbor(&row).unwrap();
+        assert_eq!(observed.state, NeighborState::Failed);
+        assert_eq!(observed.mac, None);
+        row.State = NlnsIncomplete;
+        row.PhysicalAddress[..6].copy_from_slice(&[2, 0, 0, 0, 0, 1]);
+        let observed = row_to_neighbor(&row).unwrap();
+        assert_eq!(observed.state, NeighborState::Incomplete);
+        assert_eq!(observed.mac, None);
+        row.State = NlnsPermanent;
+        let observed = row_to_neighbor(&row).unwrap();
+        assert_eq!(observed.mac, Some(MacAddress::new([2, 0, 0, 0, 0, 1])));
     }
 
     /// Exercises a real round trip through the IP Helper API, no privilege

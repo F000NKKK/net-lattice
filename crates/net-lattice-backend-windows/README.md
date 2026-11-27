@@ -43,6 +43,11 @@ using the IP Helper API. `WindowsBackend` implements the generic
   managed filter set across the four IPv4/IPv6 ALE layers;
 - preservation of Windows error codes in the shared error model.
 
+An unreachable IP Helper neighbor is reported as `NeighborState::Failed`.
+An incomplete entry, or an unreachable entry with an all-zero placeholder
+MAC, has no observed MAC address. See Microsoft's
+[`MIB_IPNET_ROW2` state definitions](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipnet_row2).
+
 The crate compiles to an empty library on any target other than Windows.
 The `async` feature enables native async event delivery (and
 `net-lattice-platform/async`). Firewall management uses the Windows

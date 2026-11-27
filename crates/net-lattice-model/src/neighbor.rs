@@ -27,7 +27,7 @@ pub enum NeighborState {
     Delay,
     /// Actively probing to reconfirm reachability.
     Probe,
-    /// Address resolution failed.
+    /// Address resolution or neighbor reachability failed.
     Failed,
     /// Manually configured; never expires or is probed.
     Permanent,

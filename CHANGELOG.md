@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Windows neighbor inspection maps the native unreachable state to `Failed`
+  and omits placeholder MAC addresses for unresolved entries.
 - The macOS backend no longer creates an internal Tokio runtime for its
   synchronous route and neighbor operations.
 - The Windows backend no longer creates an internal Tokio runtime for its
