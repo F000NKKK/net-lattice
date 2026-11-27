@@ -858,8 +858,8 @@ impl CapabilityProvider for LinuxBackend {
     /// act on would be a lie to the caller. `NEIGHBOR_MUTATION` is now
     /// truthful too: `NeighborMutator` submits real `RTM_NEWNEIGH`/
     /// `RTM_DELNEIGH` requests (see `impl NeighborMutator for LinuxBackend`).
-    /// This capability is not yet reachable through the public `net-lattice`
-    /// facade — that wiring is Stage 0.17 Slice D, not this backend.
+    /// The public facade exposes this capability through static-neighbor
+    /// operations and mutation plans.
     /// `FIREWALL_MUTATION` is truthful too: `FirewallMutator` submits a real
     /// nftables table/chain/rule transaction over Netlink (see `impl
     /// FirewallMutator for LinuxBackend` in `firewall.rs`).
