@@ -5,7 +5,7 @@ Thank you for your interest in contributing to Net Lattice. This document descri
 ## Project Status
 
 `1.0` is the current stable line — see [README.md](README.md)'s Roadmap and
-[ARCHITECTURE.md](ARCHITECTURE.md)'s "Frozen 1.0 Public API Surface" for the
+[ARCHITECTURE.md](ARCHITECTURE.md)'s "2.0 Public API Surface" for the
 full inventory. The most valuable contributions right now are:
 
 - Feedback on the project's vision, scope, and roadmap (see [README.md](README.md))

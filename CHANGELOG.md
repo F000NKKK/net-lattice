@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-27
+
 ### Changed
 
 - Windows neighbor inspection maps the native unreachable state to `Failed`
@@ -17,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   synchronous IP Helper operations.
 - The optional native event channel no longer depends on Tokio. Its provider,
   receiver, sender and stream adapter use `AsyncEvent*`, `watch_async`, and
-  `from_async_receiver` names. This renames the previous public API.
+  `from_async_receiver` names. This replaces the `TokioEvent*`, `watch_tokio`,
+  and `from_tokio_receiver` public names without compatibility aliases.
 - Linux interface, address, neighbor, and route inspection and mutation use
   a synchronous Netlink socket; monitoring uses a cancellable reader thread.
   The Linux backend no longer depends on an async runtime in normal builds.

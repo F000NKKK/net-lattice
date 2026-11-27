@@ -25,10 +25,6 @@
 
 ## 📖 Overview
 
-This README describes unreleased `main` changes as well as the published API.
-The `1.1` crates on crates.io still have the previous runtime dependencies and
-backend async API; consult the docs.rs page for the installed version.
-
 Cross-platform network inspection and configuration through one strongly
 typed Rust API. This is the application-facing crate of
 [Net Lattice](https://github.com/F000NKKK/net-lattice): it selects the
@@ -66,9 +62,9 @@ privileged facade tests on all three
 
 ```toml
 [dependencies]
-net-lattice = "1.1"
+net-lattice = "2.0"
 # or, with the executor-independent async event stream (`Lattice::watch_async`):
-# net-lattice = { version = "1.1", features = ["async"] }
+# net-lattice = { version = "2.0", features = ["async"] }
 ```
 
 On Linux, building needs the `libmnl` and `libnftnl` development packages

@@ -20,10 +20,6 @@
 
 ## 📖 Overview
 
-This README describes unreleased `main` changes. The published `1.1` backend
-still uses an internal Tokio runtime; use the docs.rs page for the installed
-version.
-
 Linux backend for [Net Lattice](https://github.com/F000NKKK/net-lattice)
 using Netlink and `/etc/resolv.conf` mechanisms. `LinuxBackend` implements
 native inspection, mutation, and monitoring behind the generic
@@ -61,11 +57,11 @@ executor-independent.
 
 ```toml
 [dependencies]
-net-lattice-backend-linux = "1.1"
+net-lattice-backend-linux = "2.0"
 # or, with native async event delivery:
-# net-lattice-backend-linux = { version = "1.1", features = ["async"] }
-net-lattice-core = "1.1"
-net-lattice-platform = "1.1"
+# net-lattice-backend-linux = { version = "2.0", features = ["async"] }
+net-lattice-core = "2.0"
+net-lattice-platform = "2.0"
 ```
 
 Firewall management links against `libmnl` and `libnftnl` via the `nftnl`

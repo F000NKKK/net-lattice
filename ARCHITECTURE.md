@@ -32,7 +32,7 @@ the aggregate `MONITORING` bit means a native delivery path exists for every
 currently modeled domain, while filtered watches require their selected
 route/interface/neighbor/address bit. Windows has no native neighbor-change
 callback and therefore rejects neighbor and all-domain subscriptions. See
-"Frozen 1.0 Public API Surface" below for the full audited inventory and
+"2.0 Public API Surface" below for the per-crate inventory and
 [CHANGELOG.md](CHANGELOG.md) for per-release detail.
 
 ## Guiding Principle
@@ -742,13 +742,13 @@ which layer:
 
 This ranking exists so that a change's blast radius can be reasoned about
 before it's made, not so that any crate is exempt from normal semver
-discipline in the stable 1.x line.
+discipline in the stable 2.x line.
 
-## Frozen 1.0 Public API Surface
+## 2.0 Public API Surface
 
 This is the consolidated, per-crate checklist of the public items that fall
 under the semver discipline in the "API Stability Rules" section above for
-the stable 1.x line. It exists so a reviewer can check "is this item on the
+the stable 2.x line. It exists so a reviewer can check "is this item on the
 frozen list" without re-deriving the workspace's public surface from source
 by hand. Nearly every domain-shaped struct and enum below is already
 `#[non_exhaustive]` — new fields/variants remain additive after 1.0 — so
@@ -1152,7 +1152,7 @@ in this document.
 1.0 is the current stable line: complete cross-platform inspection,
 monitoring, imperative mutation, ordered transactions, declarative apply,
 and native-firewall policy management, each with privileged regression
-coverage on Linux, Windows, and macOS. See "Frozen 1.0 Public API Surface"
+coverage on Linux, Windows, and macOS. See "2.0 Public API Surface"
 below for the audited inventory, and [CHANGELOG.md](CHANGELOG.md) for the
 dated history of how it got here.
 

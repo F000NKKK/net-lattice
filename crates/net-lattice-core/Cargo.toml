@@ -1,12 +1,12 @@
 [package]
 name = "net-lattice-core"
-version = "1.1.0"
+version = "2.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
+documentation = "https://docs.rs/net-lattice-core"
 categories.workspace = true
 keywords.workspace = true
 description = "Foundational error, ID, and result types shared across the Net Lattice workspace. No OS dependency, no networking-specific types."

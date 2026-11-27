@@ -39,7 +39,7 @@ platform-independent and performs no network I/O.
 
 ```toml
 [dependencies]
-net-lattice-ip = "1.1"
+net-lattice-ip = "2.0"
 ```
 
 ## 🎓 Quick Start

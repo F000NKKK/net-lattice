@@ -75,18 +75,13 @@ BSD routing facilities в macOS и другие механизмы. Прилож
   осознанно, с вниманием к дизайну API и долгосрочной поддерживаемости, а
   не поспешно, чтобы покрыть все мыслимые сценарии.
 
-> **Статус:** `1.1` — текущая стабильная линия. Net Lattice предоставляет
+> **Статус:** `2.0` — текущая стабильная линия. Net Lattice предоставляет
 > кроссплатформенный просмотр сети, изменение маршрутов, адресов, DNS,
 > administrative state и MTU интерфейсов, статических записей ARP/NDP и
 > native-firewall, inspectable планы mutation-операций, упорядоченное
 > исполнение транзакций с cancellation, snapshots, compensation и фазовыми
 > отчётами, декларативные desired-state/diff/apply и снапшоты
 > `CurrentState` для всей системы на Linux, Windows и macOS.
-
-Документация ветки `main` также описывает ещё не выпущенные изменения. В
-частности, backend'ы без runtime и переименованный async API пока отсутствуют
-в опубликованных крейтах `1.1`; для пакетов с crates.io сверяйтесь с
-документацией установленной версии.
 
 ## 🌟 Ключевые возможности
 
@@ -198,10 +193,10 @@ Matrix and Gaps» и «Гарантии доставки событий»). Би
 ```toml
 [dependencies]
 # Synchronous API
-net-lattice = "1.1"
+net-lattice = "2.0"
 
 # Plus the executor-independent async event stream (`Lattice::watch_async`)
-# net-lattice = { version = "1.1", features = ["async"] }
+# net-lattice = { version = "2.0", features = ["async"] }
 ```
 
 `async` — единственная feature. Она добавляет watcher в виде
@@ -493,9 +488,9 @@ sudo setcap cap_net_admin+ep ./your-app        # or run with sudo
 `monitoring`; модуль `backend` собирает трейты, которые реализует
 сторонний backend.
 
-### Замороженная поверхность 1.0
+### Публичная поверхность 2.0
 
-Следующая поверхность — замороженный публичный API версии 1.0, описанный в
+Следующая поверхность — публичный API версии 2.0, описанный в
 [архитектуре](ARCHITECTURE.ru.md) — проверена privileged CI-задачами на
 Linux, Windows и macOS:
 
@@ -531,7 +526,7 @@ README с назначением и примером использования:
 
 ## 🗺️ Дорожная карта
 
-`1.1` — текущая стабильная линия: полная кроссплатформенная поддержка
+`2.0` — текущая стабильная линия: полная кроссплатформенная поддержка
 inspection, monitoring, imperative mutation, упорядоченных транзакций,
 декларативного apply и управления native-firewall policy (imperative и
 транзакционное), каждая с privileged regression coverage на Linux,

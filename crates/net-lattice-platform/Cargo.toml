@@ -1,12 +1,12 @@
 [package]
 name = "net-lattice-platform"
-version = "1.1.0"
+version = "2.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
+documentation = "https://docs.rs/net-lattice-platform"
 categories.workspace = true
 keywords.workspace = true
 description = "Generic provider traits and Capability contract between the model and platform backends. Depends only on net-lattice-core — never on net-lattice-model."

@@ -1,12 +1,12 @@
 [package]
 name = "net-lattice-backend-windows"
-version = "1.1.0"
+version = "2.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
+documentation = "https://docs.rs/net-lattice-backend-windows"
 categories.workspace = true
 keywords.workspace = true
 description = "Windows backend for Net Lattice: implements net-lattice-platform's provider traits via the Windows IP Helper API."

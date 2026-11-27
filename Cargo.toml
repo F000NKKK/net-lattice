@@ -19,17 +19,17 @@ keywords = ["networking", "netlink", "cross-platform", "systems", "os"]
 # why each crate's version is independent rather than tied to a single
 # workspace-wide number.
 [workspace.dependencies]
-net-lattice-core = { path = "crates/net-lattice-core", version = "1.1.0" }
-net-lattice-ip = { path = "crates/net-lattice-ip", version = "1.1.0" }
+net-lattice-core = { path = "crates/net-lattice-core", version = "2.0.0" }
+net-lattice-ip = { path = "crates/net-lattice-ip", version = "2.0.0" }
 
-net-lattice-model = { path = "crates/net-lattice-model", version = "1.1.0" }
-net-lattice-platform = { path = "crates/net-lattice-platform", version = "1.1.0" }
+net-lattice-model = { path = "crates/net-lattice-model", version = "2.0.0" }
+net-lattice-platform = { path = "crates/net-lattice-platform", version = "2.0.0" }
 
-net-lattice-backend-linux = { path = "crates/net-lattice-backend-linux", version = "1.1.0" }
-net-lattice-backend-windows = { path = "crates/net-lattice-backend-windows", version = "1.1.0" }
-net-lattice-backend-darwin = { path = "crates/net-lattice-backend-darwin", version = "1.1.0" }
-net-lattice-async = { path = "crates/net-lattice-async", version = "1.1.0" }
-net-lattice = { path = "crates/net-lattice", version = "1.1.0" }
+net-lattice-backend-linux = { path = "crates/net-lattice-backend-linux", version = "2.0.0" }
+net-lattice-backend-windows = { path = "crates/net-lattice-backend-windows", version = "2.0.0" }
+net-lattice-backend-darwin = { path = "crates/net-lattice-backend-darwin", version = "2.0.0" }
+net-lattice-async = { path = "crates/net-lattice-async", version = "2.0.0" }
+net-lattice = { path = "crates/net-lattice", version = "2.0.0" }
 
 bitflags = "2.13.2"
 tokio = { version = "1.53.1", features = ["rt"] }

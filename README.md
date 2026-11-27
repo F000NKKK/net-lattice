@@ -70,17 +70,13 @@ shell commands, or ad hoc string parsing.
   deliberately, with attention to API design and long-term
   maintainability, rather than rushed to cover every possible use case.
 
-> **Status:** `1.1` is the current stable line. Net Lattice provides
+> **Status:** `2.0` is the current stable line. Net Lattice provides
 > cross-platform network inspection, route, address, DNS,
 > administrative-state, MTU, static ARP/NDP neighbor, and native-firewall
 > mutation, inspectable mutation plans, ordered transaction execution with
 > cancellation, snapshots, compensation, and phase-aware reports, declarative
 > desired-state/diff/apply, and whole-system `CurrentState` snapshots on
 > Linux, Windows, and macOS.
-
-The documentation on `main` also describes unreleased changes. In particular,
-the runtime-independent backends and renamed backend async API are not yet in
-the published `1.1` crates; consult the documentation for your installed version.
 
 ## 🌟 Key Features
 
@@ -187,10 +183,10 @@ addition-sourced events on a backend that does not report it.
 ```toml
 [dependencies]
 # Synchronous API
-net-lattice = "1.1"
+net-lattice = "2.0"
 
 # Plus the executor-independent async event stream (`Lattice::watch_async`)
-# net-lattice = { version = "1.1", features = ["async"] }
+# net-lattice = { version = "2.0", features = ["async"] }
 ```
 
 `async` is the only feature. It adds a `futures::Stream` watcher surface and
@@ -472,9 +468,9 @@ Domain types resolve through the `net_lattice::model`, `mutation`, and
 `monitoring` modules; the `backend` module collects the traits a
 third-party backend implements.
 
-### Frozen 1.0 Surface
+### 2.0 Public Surface
 
-The following surface, the frozen 1.0 public API described by
+The following surface, the 2.0 public API described by
 [architecture](ARCHITECTURE.md), is verified by the privileged Linux,
 Windows, and macOS CI jobs:
 
@@ -510,7 +506,7 @@ own crate-level README with its scope and a usage example:
 
 ## 🗺️ Roadmap
 
-1.1 is the current stable line: complete cross-platform inspection,
+2.0 is the current stable line: complete cross-platform inspection,
 monitoring, imperative mutation, ordered transactions, declarative apply,
 and native-firewall policy management (imperative and transactional), each
 with privileged regression coverage on Linux, Windows, and macOS. See

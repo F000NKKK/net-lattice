@@ -20,10 +20,6 @@
 
 ## 📖 Overview
 
-This README describes unreleased `main` changes. The published `1.1` backend
-still creates an internal Tokio runtime; use the docs.rs page for the installed
-version.
-
 Windows backend for [Net Lattice](https://github.com/F000NKKK/net-lattice)
 using the IP Helper API. `WindowsBackend` implements the generic
 `net-lattice-platform` contracts through native Windows APIs.
@@ -77,11 +73,11 @@ latency/ordering/coalescing/resource-cost tier (see the
 
 ```toml
 [dependencies]
-net-lattice-backend-windows = "1.1"
+net-lattice-backend-windows = "2.0"
 # or, with native async event delivery:
-# net-lattice-backend-windows = { version = "1.1", features = ["async"] }
-net-lattice-core = "1.1"
-net-lattice-platform = "1.1"
+# net-lattice-backend-windows = { version = "2.0", features = ["async"] }
+net-lattice-core = "2.0"
+net-lattice-platform = "2.0"
 ```
 
 ## 🎓 Quick Start

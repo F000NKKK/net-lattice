@@ -93,7 +93,7 @@ an internal facade component until repeated reuse justifies a new crate.
 
 ## Current release and roadmap
 
-The current supported stable line is `net-lattice 1.1` (see
+The current supported stable line is `net-lattice 2.0` (see
 `SECURITY.md`'s supported-version table). Read the current workspace version
 from `crates/net-lattice/Cargo.toml`; do not duplicate a patch version here.
 

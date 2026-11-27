@@ -1,12 +1,12 @@
 [package]
 name = "net-lattice-backend-linux"
-version = "1.1.0"
+version = "2.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
+documentation = "https://docs.rs/net-lattice-backend-linux"
 categories.workspace = true
 keywords.workspace = true
 description = "Linux backend for Net Lattice: implements net-lattice-platform's provider traits via Netlink."

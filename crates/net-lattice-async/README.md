@@ -18,10 +18,6 @@
 
 ## 📖 Overview
 
-This README describes unreleased `main` changes. The published `1.1` crate
-differs in its async receiver names and queue implementation; consult the
-docs.rs page for the installed version.
-
 Executor-independent asynchronous event-stream adapter for
 [Net Lattice](https://github.com/F000NKKK/net-lattice).
 
@@ -42,7 +38,7 @@ Executor-independent asynchronous event-stream adapter for
 
 ```toml
 [dependencies]
-net-lattice-async = "1.1"
+net-lattice-async = "2.0"
 futures = "0.3"  # for `StreamExt` in the example below
 ```
 

@@ -10,7 +10,7 @@ Thank you for your interest in Net Lattice.
 
 ## Project Status
 
-The current stable release line is 1.1.x; the workspace requires Rust 1.100
+The current stable release line is 2.0.x; the workspace requires Rust 1.100
 or newer.
 
 Net Lattice provides cross-platform network inspection, route, interface,
@@ -45,9 +45,9 @@ the same merged receiver, and this release ships one concrete instance,
 Windows neighbor-monitoring-via-polling
 (`Addition::NEIGHBOR_MONITORING_POLLING`), as an opt-in substitute where
 native neighbor-change monitoring is still unavailable on that platform.
-The 1.0 release completed the API freeze and hardening pass:
-the public surface is now frozen, the platform-support-matrix and event-
-delivery-guarantee documentation is consolidated, and privileged regression
-coverage is complete across all three backends. See [README.md](README.md)'s
+The 1.0 release completed an API hardening pass; 2.0 replaces the former
+Tokio-specific async backend names and establishes the current stable API.
+The platform matrix and event-delivery documentation are consolidated, and
+privileged regression coverage runs across all three backends. See [README.md](README.md)'s
 Current Status for the full capability matrix; questions about usage,
 direction, and design are all welcome.
